@@ -1,0 +1,63 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap');
+
+:root {
+  /* Brand Palette - West African Financial Gold & Deep Emerald */
+  --color-emerald-950: #061B14;
+  --color-emerald-900: #0A2920;
+  --color-emerald-800: #0F382C;
+  --color-emerald-700: #154D3D;
+  --color-emerald-600: #1C6B55;
+  --color-emerald-500: #258B6F;
+  --color-emerald-400: #33AF8E;
+  --color-emerald-300: #5FD0B1;
+  --color-emerald-100: #E6F8F3;
+  --color-emerald-50:  #F2FCF9;
+
+  --color-gold-900: #5C3D06;
+  --color-gold-700: #9E6C0C;
+  --color-gold-500: #E5A93C;
+  --color-gold-400: #F3C059;
+  --color-gold-300: #FAD789;
+  --color-gold-100: #FEF7E6;
+
+  --color-slate-950: #080D0C;
+  --color-slate-900: #0F1715;
+  --color-slate-800: #182421;
+  --color-slate-700: #253632;
+  --color-slate-600: #394F49;
+  --color-slate-400: #6D8A82;
+  --color-slate-300: #94A3B8;
+  --color-slate-200: #D2E0DC;
+  --color-slate-100: #EBF2EFF;
+  --color-slate-50:  #F6FAFA;
+
+  --color-danger-600: #DC2626;
+  --color-danger-500: #EF4444;
+  --color-danger-100: #FEE2E2;
+
+  --color-warning-500: #F59E0B;
+  --color-warning-100: #FEF3C7;
+
+  /* Typography */
+  --font-heading: 'Outfit', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+
+
+  /* Elevation & Shadows */
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(10, 41, 32, 0.08);
+  --shadow-lg: 0 10px 30px rgba(10, 41, 32, 0.12);
+  --shadow-glow-gold: 0 0 20px rgba(229, 169, 60, 0.3);
+  --shadow-glow-emerald: 0 0 20px rgba(37, 139, 111, 0.25);
+
+  /* Border Radius */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
+
+  /* Transitions */
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}

@@ -1,0 +1,329 @@
+/* ==========================================================================
+   Payment Gateway Configuration Styles (Dark Theme)
+   ========================================================================== */
+
+.payment-config-wrapper {
+  max-width: 980px;
+  margin: 0 auto;
+  padding-bottom: 3rem;
+  color: #f1f5f9;
+  font-family: var(--font-body);
+}
+
+.payment-config-tabs-nav {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid var(--color-slate-200);
+  padding-bottom: 0.75rem;
+}
+
+.payment-config-tab-btn {
+  background: #ffffff;
+  border: 1px solid var(--color-slate-200);
+  color: var(--color-slate-600);
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 0.55rem 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.payment-config-tab-btn:hover {
+  color: var(--color-slate-900);
+  background: var(--color-slate-100);
+  border-color: var(--color-slate-300);
+}
+
+.payment-config-tab-btn.active {
+  color: #ffffff;
+  background: #0f172a;
+  border-color: #0f172a;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.2);
+}
+
+.payment-card-dark {
+  background: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 1.5rem 1.65rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.35);
+}
+
+.payment-card-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0 0 1.25rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  letter-spacing: -0.01em;
+}
+
+/* Status Cards Grid */
+.payment-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+}
+
+@media (max-width: 768px) {
+  .payment-status-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .payment-status-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.payment-status-item {
+  background: #0b1120;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 0.95rem 1.15rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.payment-status-label {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  font-weight: 500;
+  margin-bottom: 0.35rem;
+}
+
+.payment-status-value {
+  font-size: 0.96rem;
+  font-weight: 700;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+}
+
+/* Badges */
+.status-pill-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.status-pill-badge.mode-test {
+  background: #78350f;
+  color: #fef3c7;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.status-pill-badge.mode-live {
+  background: #065f46;
+  color: #a7f3d0;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.status-pill-badge.status-active {
+  background: #064e3b;
+  color: #6ee7b7;
+  border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+.status-pill-badge.status-inactive {
+  background: #7f1d1d;
+  color: #fecaca;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* Form Groups */
+.payment-form-group {
+  margin-bottom: 1.35rem;
+}
+
+.payment-field-label {
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #e2e8f0;
+  margin-bottom: 0.45rem;
+}
+
+.payment-field-input {
+  width: 100%;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  color: #ffffff;
+  font-size: 0.9rem;
+  font-family: inherit;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.payment-field-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+  background: #243044;
+}
+
+.payment-field-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 1rem center;
+  padding-right: 2.5rem;
+  cursor: pointer;
+}
+
+.payment-field-help {
+  font-size: 0.78rem;
+  color: #64748b;
+  margin-top: 0.35rem;
+}
+
+/* Info Callout */
+.payment-info-box {
+  background: #172554;
+  border: 1px solid #1e3a8a;
+  border-radius: 8px;
+  padding: 0.85rem 1.15rem;
+  color: #93c5fd;
+  font-size: 0.85rem;
+  margin: 1.25rem 0 1.5rem;
+  line-height: 1.45;
+}
+
+/* Radio & Checkbox */
+.payment-radio-group {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin: 0.5rem 0 0.35rem;
+}
+
+.payment-radio-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+  color: #f1f5f9;
+  cursor: pointer;
+}
+
+.payment-radio-label input[type="radio"] {
+  accent-color: #3b82f6;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.payment-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.9rem;
+  color: #f1f5f9;
+  cursor: pointer;
+  margin-top: 0.5rem;
+}
+
+.payment-checkbox-label input[type="checkbox"] {
+  accent-color: #3b82f6;
+  width: 17px;
+  height: 17px;
+  cursor: pointer;
+}
+
+/* Reseller Highlight Box */
+.reseller-highlight-card {
+  border: 1px solid #b45309;
+  background: rgba(180, 83, 9, 0.08);
+  border-radius: 10px;
+  padding: 1.25rem 1.35rem;
+  margin: 1.75rem 0 1.5rem;
+}
+
+.reseller-highlight-title {
+  color: #f59e0b;
+  font-size: 0.92rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.4rem 0;
+}
+
+.reseller-highlight-desc {
+  color: #cbd5e1;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  margin: 0 0 1rem 0;
+}
+
+/* Save Button */
+.btn-save-payment-config {
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 0.92rem;
+  font-weight: 700;
+  padding: 0.75rem 1.65rem;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+  transition: all 0.2s ease;
+}
+
+.btn-save-payment-config:hover {
+  background: #1d4ed8;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45);
+}
+
+.btn-save-payment-config:active {
+  transform: translateY(0);
+}
+
+/* Setup Notes */
+.setup-note-block {
+  margin-bottom: 1.25rem;
+  padding-left: 0.85rem;
+}
+
+.setup-note-block.blue-accent {
+  border-left: 3px solid #3b82f6;
+}
+
+.setup-note-block.purple-accent {
+  border-left: 3px solid #a855f7;
+}
+
+.setup-note-title {
+  color: #ffffff;
+  font-size: 0.92rem;
+  font-weight: 700;
+  margin: 0 0 0.25rem 0;
+}
+
+.setup-note-text {
+  color: #94a3b8;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  margin: 0;
+}
