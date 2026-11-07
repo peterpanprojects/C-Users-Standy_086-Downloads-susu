@@ -2,7 +2,7 @@ import React from 'react';
 import { CheckCheck, Trash2 } from 'lucide-react';
 import { useSusu } from '../../context/SusuContext';
 
-export const NotificationDropdown: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
+export const NotificationDropdown: React.FC<{ onClose?: () => void; align?: string }> = ({ onClose, align }) => {
   const { notifications, markAllNotificationsAsRead, clearAllNotifications, markNotificationAsRead } = useSusu();
 
   return (
@@ -11,7 +11,7 @@ export const NotificationDropdown: React.FC<{ onClose?: () => void }> = ({ onClo
       style={{
         position: 'absolute',
         top: '65px',
-        right: '12px',
+        ...(align === 'left' ? { left: '12px' } : { right: '12px' }),
         width: '380px',
         maxWidth: 'calc(100vw - 24px)',
         maxHeight: '78vh',
