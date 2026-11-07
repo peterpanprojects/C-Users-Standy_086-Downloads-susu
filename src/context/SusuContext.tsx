@@ -436,29 +436,47 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return {};
   });
 
-  const [agents, setAgents] = useState<AgentAccount[]>(() => {
+const [agents, setAgents] = useState<AgentAccount[]>(() => {
     const agentMap = new Map<string, AgentAccount>();
+
+    // 1. Read from permanent key FIRST (fixes 4-day wipe)
+    const v2 = localStorage.getItem('susu_agents_v2');
+    if (v2) {
+      try {
+        const parsed = JSON.parse(v2) as AgentAccount[];
+        parsed.forEach((a) => { if (a.id) agentMap.set(a.id, a); });
+      } catch {}
+    }
+
+    // 2. Old DB
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed.agents)) {
-          parsed.agents.forEach((a: AgentAccount) => { if (a.id) agentMap.set(a.id, a); });
-        } else if (parsed.agentAccount && parsed.agentAccount.id) {
+          parsed.agents.forEach((a: AgentAccount) => { 
+            if (a.id && !agentMap.has(a.id)) agentMap.set(a.id, a); 
+          });
+        } else if (parsed.agentAccount?.id && !agentMap.has(parsed.agentAccount.id)) {
           agentMap.set(parsed.agentAccount.id, parsed.agentAccount);
         }
       } catch {}
     }
+
+    // 3. Registry
     const regStr = localStorage.getItem(AGENT_REGISTRY_KEY);
     if (regStr) {
       try {
         const registry = JSON.parse(regStr);
-        const registryAgents = Object.values(registry) as AgentAccount[];
-        registryAgents.forEach(a => { if (a.id) agentMap.set(a.id, a); });
+        (Object.values(registry) as AgentAccount[]).forEach(a => { 
+          if (a.id && !agentMap.has(a.id)) agentMap.set(a.id, a); 
+        });
       } catch {}
     }
+
     return Array.from(agentMap.values());
   });
+ 
 
   const [currentAgentId, setCurrentAgentIdState] = useState<string>(() => {
     return localStorage.getItem(CURRENT_AGENT_ID_KEY) || '';
@@ -658,14 +676,27 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [isDbLoaded, setIsDbLoaded] = useState(false);
 
-  // 1. Load main data from DB
+  // 1. Load main data from DB - FIXED NOT TO WIPE
   useEffect(() => {
     DatabaseService.loadState().then((dbState) => {
-      setGroups(dbState.groups || (dbState.group? [dbState.group] : []));
+      setGroups(dbState.groups || (dbState.group ? [dbState.group] : []));
       setMembers(dbState.members || []);
       setPayments(dbState.payments || []);
       setPosts(dbState.posts || []);
-      setAgents(dbState.agents || (dbState.agentAccount? [dbState.agentAccount] : []));
+      
+      if (dbState.agents && dbState.agents.length > 0) {
+        setAgents(prev => {
+          const merged = new Map<string, AgentAccount>();
+          prev.forEach(a => { if (a.id) merged.set(a.id, a); });
+          dbState.agents.forEach((a: AgentAccount) => { 
+            if (a.id && !merged.has(a.id)) merged.set(a.id, a); 
+          });
+          const result = Array.from(merged.values());
+          localStorage.setItem('susu_agents_v2', JSON.stringify(result));
+          return result;
+        });
+      }
+      
       if (dbState.agentPaymentConfigs && Object.keys(dbState.agentPaymentConfigs).length > 0) {
         setAgentPaymentConfigs(prev => ({...prev,...dbState.agentPaymentConfigs }));
       } else if (dbState.agentPaymentConfig) {
@@ -678,12 +709,18 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
       if (dbState.liveSupportConfig) setLiveSupportConfig(dbState.liveSupportConfig);
-    
       setIsDbLoaded(true);
     });
   }, []);
 
-    // Load from Supabase
+  // Protect agents from being wiped
+  useEffect(() => {
+    if (agents.length > 0) {
+      localStorage.setItem('susu_agents_v2', JSON.stringify(agents));
+    }
+  }, [agents]);
+
+  // Load from Supabase
   useEffect(() => {
     const fetchNotifs = async () => {
       try {
@@ -757,6 +794,7 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     if (!isDbLoaded) return;
+
     const timeout = setTimeout(() => {
 const stateToSave = {
   group, groups, activeGroupId, members, payments, posts,
@@ -869,24 +907,94 @@ const stateToSave = {
     }
   };
 
-  const createAgent = (data: Partial<AgentAccount>): AgentAccount => {
-    const newId = `agt-${Date.now()}`;
-    const newAgent: AgentAccount = {
-     ...INITIAL_AGENT_ACCOUNT,
-      id: newId,
-      licenseNumber: `SUSU-AGT-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`,
-      activationFeeAmount: platformSettings.agentActivationFee,
-     ...data
-    };
-    setAgents(prev => [newAgent,...prev]);
-    setActiveAgentId(newId);
-    localStorage.setItem('susu_current_agent_id', newId);
-    if (newAgent.email) {
-      const emailKey = newAgent.email.toLowerCase();
-      localStorage.setItem('susu_current_agent_email', emailKey);
-    }
-    return newAgent;
-  };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const createAgent = (data: Partial<AgentAccount>): AgentAccount => {
+  const newId = `agt-${Date.now()}`;
+  const newAgent: AgentAccount = {
+    ...INITIAL_AGENT_ACCOUNT,
+    id: newId,
+    licenseNumber: `SUSU-AGT-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`,
+    activationFeeAmount: platformSettings.agentActivationFee,
+    ...data,
+    email: data.email?.toLowerCase() || '',
+  } as AgentAccount;
+  
+  setAgents(prev => {
+    const updated = [newAgent, ...prev.filter(a => a.email?.toLowerCase() !== newAgent.email.toLowerCase())];
+    localStorage.setItem('susu_agents_v2', JSON.stringify(updated));
+    const registry: Record<string, AgentAccount> = {};
+    updated.forEach(a => { if (a.email) registry[a.email.toLowerCase()] = a; });
+    localStorage.setItem(AGENT_REGISTRY_KEY, JSON.stringify(registry));
+    return updated;
+  });
+  
+  setActiveAgentId(newId);
+  localStorage.setItem('susu_current_agent_id', newId);
+  if (newAgent.email) {
+    localStorage.setItem('susu_current_agent_email', newAgent.email.toLowerCase());
+  }
+  localStorage.setItem('susu_current_agent_v2', JSON.stringify(newAgent));
+
+  // ✅ NEW: SAVE TO SUPABASE SO PHONE CAN SEE IT
+  (async () => {
+    try {
+      const { supabase } = await import('../services/db');
+      if (supabase) {
+        const { error } = await supabase.from('agent_accounts').upsert({
+          id: newAgent.id,
+          first_name: newAgent.firstName,
+          surname: newAgent.surname,
+          email: newAgent.email,
+          phone: newAgent.phone,
+          is_otp_verified: newAgent.isOtpVerified,
+          is_kyc_submitted: newAgent.isKycSubmitted,
+          is_activated: newAgent.isActivated,
+          activation_fee_amount: newAgent.activationFeeAmount,
+          admin_approval_status: newAgent.adminApprovalStatus,
+          license_number: newAgent.licenseNumber,
+          kyc_data: newAgent.kycData
+        }, { onConflict: 'id' });
+        if (error) console.error('Supabase agent save error:', error);
+        else console.log('✅ Agent saved to Supabase for cross-device login');
+      }
+    } catch (e) { console.warn(e); }
+  })();
+  
+  return newAgent;
+};
+
+
+
+
+
+
+
+
+
 
   const registerAgentKyc = (kycData: AgentKycData) => {
     setAgents(prev => prev.map(a => {
@@ -1017,65 +1125,114 @@ const stateToSave = {
     return false;
   };
 
-   const inviteMember = async (name: string, email: string, phone: string) => {
-    if (!group) throw new Error('Please select or create a Susu group first before inviting members.');
-    const token = `invite-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
-    const randomCode = `SUSU-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-    const newMemberId = `mem-${Date.now()}`;
-    const groupMembers = members.filter(m => m.groupId === group.id);
-    const position = groupMembers.length + 1;
-    const newMember: GroupMember = {
-      id: newMemberId,
-      groupId: group.id,
-      userId: `usr-${newMemberId}`,
-      name,
-      email,
-      phone,
-      inviteStatus: 'pending',
-      inviteToken: token,
-      uniqueCode: randomCode,
-      joinedAt: formatDateStr(new Date()),
-      positionInRotation: position,
-      reliabilityScore: 100,
-      slotLocked: false
-    };
-    setMembers(prev => [...prev, newMember]);
-    try {
-      const { supabase } = await import('../services/db');
-      if (supabase) {
-        await supabase.from('group_invites').insert({
-          group_id: group.id,
-          token: token,
-          invited_email: email || phone,
-          status: 'pending'
-        });
-      }
-    } catch (e) {
-      console.warn('Supabase invite save failed', e);
-    }
-    return { token, inviteUrl: `${window.location.origin}/invite/${token}`, uniqueCode: randomCode };
-  };
 
-  const acceptInviteToken = async (token: string, name: string, phone: string): Promise<boolean> => {
-    try {
-      const { supabase } = await import('../services/db');
-      if (!supabase) return false;
-      const { data: invite, error } = await supabase.from('group_invites').select('*').eq('token', token).single();
-      if (error ||!invite) return false;
-      if (invite.status === 'used') return false;
-      await supabase.from('group_invites').update({ status: 'used' }).eq('token', token);
-      setMembers(prev => prev.map(m => {
-        if (m.inviteToken === token) {
-          return {...m, name: name || m.name, phone: phone || m.phone, inviteStatus: 'active', inviteToken: undefined, slotLocked: true };
-        }
-        return m;
-      }));
-      return true;
-    } catch (e) {
-      console.error('Accept failed', e);
-      return false;
-    }
+
+
+
+
+
+
+
+const inviteMember = async (name: string, email: string, phone: string) => {
+  if (!group) throw new Error('Please select or create a Susu group first before inviting members.');
+  const token = `invite-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2,6)}`;
+  const randomCode = `SUSU-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+  const newMemberId = `mem-${Date.now()}`;
+  const groupMembers = members.filter(m => m.groupId === group.id);
+  const position = groupMembers.length + 1;
+  
+  const newMember: GroupMember = {
+    id: newMemberId,
+    groupId: group.id,
+    userId: `usr-${newMemberId}`,
+    name,
+    email,
+    phone,
+    inviteStatus: 'pending',
+    inviteToken: token,
+    uniqueCode: randomCode,
+    joinedAt: formatDateStr(new Date()),
+    positionInRotation: position,
+    reliabilityScore: 100,
+    slotLocked: false
   };
+  
+  setMembers(prev => [...prev, newMember]);
+  
+  try {
+    const { supabase } = await import('../services/db');
+    if (supabase) {
+      // Save member to Supabase too so other devices see it
+      await supabase.from('group_members').upsert({
+        id: newMemberId,
+        group_id: group.id,
+        name: name,
+        email: email,
+        phone: phone,
+        invite_status: 'pending',
+        invite_token: token,
+        unique_code: randomCode,
+        position_in_rotation: position
+      }, { onConflict: 'id' });
+
+      // Save invite with member_id - CRITICAL FOR ONE-TIME BURN
+      await supabase.from('group_invites').insert({
+        id: token,
+        group_id: group.id,
+        token: token,
+        member_id: newMemberId,
+        member_name: name,
+        member_phone: phone,
+        invited_email: email?.toLowerCase() || phone,
+        position: position,
+        status: 'pending',
+        created_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 7*24*60*60*1000).toISOString()
+      });
+    }
+  } catch (e) {
+    console.warn('Supabase invite save failed', e);
+  }
+  
+  return { token, inviteUrl: `${window.location.origin}/invite/${token}`, uniqueCode: randomCode };
+};
+
+ const acceptInviteToken = async (token: string, name: string, phone: string): Promise<boolean> => {
+  try {
+    const { supabase } = await import('../services/db');
+    if (!supabase) return false;
+    
+    // The burn already happened in InviteAcceptPage
+    // Just verify it is accepted and activate member locally
+    const { data: invite } = await supabase
+      .from('group_invites')
+      .select('*')
+      .eq('token', token)
+      .single();
+      
+    if (!invite) return false;
+    if (invite.status !== 'accepted' && invite.status !== 'pending') return false;
+
+    setMembers(prev => prev.map(m => {
+      if (m.inviteToken === token || m.id === invite.member_id) {
+        return { 
+          ...m, 
+          name: name || m.name, 
+          phone: phone || m.phone, 
+          inviteStatus: 'active', 
+          inviteToken: undefined, 
+          slotLocked: true 
+        };
+      }
+      return m;
+    }));
+    
+    return true;
+  } catch (e) {
+    console.error('Accept failed', e);
+    return false;
+  }
+};
 
   const removeMember = (memberId: string) => setMembers(prev => {
     const target = prev.find(m => m.id === memberId);
