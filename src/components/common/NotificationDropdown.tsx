@@ -14,34 +14,53 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ alig
     markAllNotificationsAsRead,
     clearAllNotifications,
     currentUserRole,
-    activeMemberId
+    activeMemberId,
+    myGroups
   } = useSusu();
 
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
 
-  // ✅ CORRECT ISOLATION
   const visibleNotifications = useMemo(() => {
-    if (currentUserRole === 'member') {
-      // Member: ONLY notifications where memberId == me
-      return notifications.filter((n: any) => n.memberId === activeMemberId);
-    }
-    if (currentUserRole === 'agent') {
-      // Agent: NEVER show anything that has a memberId (those are member-only DMs)
-      return notifications.filter((n: any) =>!n.memberId);
-    }
-    if (currentUserRole === 'super_admin') {
-      // Super Admin: NEVER show member DMs
-      return notifications.filter((n: any) =>!n.memberId);
-    }
-    return notifications;
-  }, [notifications, currentUserRole, activeMemberId]);
+    if (!notifications) return [];
 
-  const unreadCount = visibleNotifications.filter((n) =>!n.read).length;
+    if (currentUserRole === 'member') {
+      if (!activeMemberId) return [];
+      // Member: ONLY his own notifications, handle string/number mismatch
+      return notifications
+        .filter((n: any) => {
+          const nMemberId = n.memberId || n.member_id;
+          return !!nMemberId && String(nMemberId) === String(activeMemberId);
+        })
+        .sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
+    }
+
+    if (currentUserRole === 'agent') {
+      // Agent: See system notifications (no memberId) + all notifications for his groups
+      const myGroupIds = new Set((myGroups || []).map((g: any) => g.id));
+      return notifications
+        .filter((n: any) => {
+          if (!n.memberId && !n.member_id) return true; // system
+          const groupId = n.groupId || n.group_id;
+          if (groupId && myGroupIds.has(groupId)) return true;
+          return false;
+        })
+        .sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
+    }
+
+    if (currentUserRole === 'super_admin') {
+      // Super Admin sees everything except private member DMs, or everything if you want
+      return [...notifications].sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
+    }
+
+    return [...notifications].sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
+  }, [notifications, currentUserRole, activeMemberId, myGroups]);
+
+  const unreadCount = visibleNotifications.filter((n) => !n.read).length;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current &&!dropdownRef.current.contains(event.target as Node)) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsOpen(false);
       }
     };
@@ -69,21 +88,21 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ alig
       </button>
 
       {isOpen && (
-        <div style={{ position: 'absolute', top: 'calc(100% + 10px)', [align === 'right'? 'right' : 'left']: 0, width: '360px', maxWidth: 'calc(100vw - 32px)', background: '#ffffff', borderRadius: '18px', boxShadow: '0 16px 40px -4px rgba(15, 23, 42, 0.15)', zIndex: 9999, overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: 'calc(100% + 10px)', [align === 'right' ? 'right' : 'left']: 0, width: '360px', maxWidth: 'calc(100vw - 32px)', background: '#ffffff', borderRadius: '18px', boxShadow: '0 16px 40px -4px rgba(15, 23, 42, 0.15)', zIndex: 9999, overflow: 'hidden' }}>
           <div style={{ padding: '1.15rem 1.25rem 0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9' }}>
             <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#0f172a', margin: 0 }}>Notifications</h3>
             {unreadCount > 0 && <button type="button" onClick={markAllNotificationsAsRead} style={{ background: 'transparent', border: 'none', color: '#6366f1', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem' }}><Check size={14} />Mark all as read</button>}
           </div>
 
           <div style={{ maxHeight: '380px', overflowY: 'auto' }}>
-            {visibleNotifications.length === 0? (
-              <div style={{ padding: '3rem 1.5rem', textAlign: 'center', color: '#94a3b8' }}><Bell size={32} color="#cbd5e1" style={{ margin: '0 auto 0.75rem' }} /><div style={{ fontWeight: 600, color: '#64748b' }}>No notifications</div></div>
+            {visibleNotifications.length === 0 ? (
+              <div style={{ padding: '3rem 1.5rem', textAlign: 'center', color: '#94a3b8' }}><Bell size={32} color="#cbd5e1" style={{ margin: '0 auto 0.75rem' }} /><div style={{ fontWeight: 600, color: '#64748b' }}>No notifications</div><div style={{ fontSize: '0.8rem', marginTop: '0.3rem' }}>{currentUserRole === 'member' ? `Member: ${activeMemberId || 'not set'}` : `Role: ${currentUserRole}`}</div></div>
             ) : (
               visibleNotifications.map((item) => (
-                <div key={item.id} onClick={() => markNotificationAsRead(item.id)} style={{ padding: '1rem 1.25rem', display: 'flex', gap: '1rem', borderBottom: '1px solid #f8fafc', background: item.read? '#ffffff' : '#fcfdff', cursor: 'pointer' }}>
+                <div key={item.id} onClick={() => markNotificationAsRead(item.id)} style={{ padding: '1rem 1.25rem', display: 'flex', gap: '1rem', borderBottom: '1px solid #f8fafc', background: item.read ? '#ffffff' : '#fcfdff', cursor: 'pointer' }}>
                   {renderNotificationIcon(item.type)}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><h4 style={{ margin: 0, fontSize: '0.94rem', fontWeight: 700, color: '#0f172a' }}>{item.title}</h4>{!item.read && <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#6366f1' }} />}</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><h4 style={{ margin: 0, fontSize: '0.94rem', fontWeight: 700, color: '#0f172a' }}>{item.title}</h4>{!item.read && <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#6366f1', marginTop: '6px' }} />}</div>
                     <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.84rem', color: '#64748b' }}>{item.description}</p>
                     <span style={{ display: 'inline-block', marginTop: '0.4rem', fontSize: '0.78rem', color: '#94a3b8' }}>{item.time}</span>
                   </div>
@@ -94,8 +113,8 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ alig
 
           {visibleNotifications.length > 0 && (
             <div style={{ padding: '0.75rem 1.25rem', background: '#fafafa', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem' }}>
-              <span style={{ color: '#94a3b8' }}>{unreadCount > 0? `${unreadCount} unread` : 'All caught up'}</span>
-              <button type="button" onClick={clearAllNotifications} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', display: 'flex', gap: '0.3rem' }}><Trash2 size={13} />Clear all</button>
+              <span style={{ color: '#94a3b8' }}>{unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}</span>
+              <button type="button" onClick={clearAllNotifications} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', display: 'flex', gap: '0.3rem', alignItems: 'center' }}><Trash2 size={13} />Clear all</button>
             </div>
           )}
         </div>
