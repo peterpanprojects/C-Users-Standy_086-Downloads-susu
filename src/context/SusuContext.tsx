@@ -323,124 +323,85 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 
 
-
 // --- NOTIFICATIONS - SUPABASE ONLY (SINGLE SOURCE) ---
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
-  // 1. Initial load - FIXED: Don't load on landing/visitor
   useEffect(() => {
     const fetchNotifs = async () => {
       const role = currentUserRole as string;
-      if (role === 'visitor' || role === 'guest' || !role) {
-        setNotifications([]);
-        return;
-      }
+      if (role === 'visitor' || !role) { setNotifications([]); return; }
       if (currentUserRole === 'member' && !activeMemberId) return;
-
       try {
         const { supabase } = await import('../services/db');
         if (!supabase) return;
-
-        let query = supabase
-          .from('notifications')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(100);
-
-        if (currentUserRole === 'member' && activeMemberId) {
-          query = query.eq('member_id', activeMemberId);
-        }
-
+        let query = supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(100);
+        if (currentUserRole === 'member' && activeMemberId) query = query.eq('member_id', activeMemberId);
         const { data, error } = await query;
-        if (error) {
-          console.error('Fetch notif error:', error);
-          return;
-        }
+        if (error) { console.error(error); return; }
         if (data) {
-          const mapped = data.map((d: any) => ({
-            id: d.id,
-            memberId: d.member_id,
-            member_id: d.member_id,
-            groupId: d.group_id,
-            group_id: d.group_id,
-            title: d.title,
-            description: d.description,
-            message: d.message,
-            type: d.type,
-            read: d.read,
-            time: new Date(d.created_at).toLocaleString(),
-            createdAt: new Date(d.created_at).getTime(),
-          }));
-          setNotifications(mapped as any);
+          setNotifications(data.map((d: any) => ({
+            id: d.id, memberId: d.member_id, member_id: d.member_id, groupId: d.group_id, group_id: d.group_id,
+            title: d.title, description: d.description, message: d.message, type: d.type, read: d.read,
+            time: new Date(d.created_at).toLocaleString(), createdAt: new Date(d.created_at).getTime(),
+          })) as any);
         }
-      } catch (e) {
-        console.warn(e);
-      }
+      } catch (e) { console.warn(e); }
     };
     fetchNotifs();
   }, [currentUserRole, activeMemberId]);
 
-  // 2. Realtime - FIXED: Don't subscribe on landing
   useEffect(() => {
     const role = currentUserRole as string;
-    if (role === 'visitor' || role === 'guest' || !role) {
-      setNotifications([]);
-      return;
-    }
+    if (role === 'visitor' || !role) { setNotifications([]); return; }
     if (currentUserRole === 'member' && !activeMemberId) return;
-
     let channel: any;
     (async () => {
       const { supabase } = await import('../services/db');
       if (!supabase) return;
-
-      const channelName = `notifs-${currentUserRole}-${activeMemberId || 'all'}-${Date.now()}`;
-      const filter = currentUserRole === 'member' && activeMemberId ? `member_id=eq.${activeMemberId}` : undefined;
-
-      channel = supabase
-        .channel(channelName)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'notifications',
-            ...(filter ? { filter } : {}),
-          },
-          (payload) => {
-            const d = payload.new as any;
-            const newNotif = {
-              id: d.id,
-              memberId: d.member_id,
-              member_id: d.member_id,
-              groupId: d.group_id,
-              group_id: d.group_id,
-              title: d.title,
-              description: d.description,
-              message: d.message,
-              type: d.type,
-              read: d.read ?? false,
-              time: new Date(d.created_at).toLocaleString(),
-              createdAt: new Date(d.created_at).getTime(),
-            };
-            setNotifications((prev) => {
-              if (prev.find((p) => p.id === d.id)) return prev;
-              return [newNotif as any, ...prev];
-            });
-          }
-        )
-        .subscribe();
+      const chName = `notifs-${currentUserRole}-${activeMemberId || 'all'}-${Date.now()}`;
+      channel = supabase.channel(chName).on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications', filter: currentUserRole === 'member' && activeMemberId ? `member_id=eq.${activeMemberId}` : undefined } as any,
+        (payload: any) => {
+          const d = payload.new;
+          const nn = { id: d.id, memberId: d.member_id, member_id: d.member_id, groupId: d.group_id, group_id: d.group_id, title: d.title, description: d.description, message: d.message, type: d.type, read: d.read ?? false, time: new Date(d.created_at).toLocaleString(), createdAt: Date.now() } as any;
+          setNotifications((prev) => prev.find((p) => p.id === d.id) ? prev : [nn, ...prev]);
+        }).subscribe();
     })();
-    return () => {
-      if (channel) {
-        (async () => {
-          const { supabase } = await import('../services/db');
-          if (supabase) supabase.removeChannel(channel);
-        })();
-      }
-    };
+    return () => { if (channel) import('../services/db').then(m => m.supabase?.removeChannel(channel)); };
   }, [currentUserRole, activeMemberId]);
-  
+
+  const markNotificationAsRead = async (id: string) => {
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    try { const { supabase } = await import('../services/db'); if (supabase) await supabase.from('notifications').update({ read: true }).eq('id', id); } catch {}
+  };
+  const markAllNotificationsAsRead = async () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    try {
+      const { supabase } = await import('../services/db');
+      if (!supabase) return;
+      if (currentUserRole === 'member' && activeMemberId) await supabase.from('notifications').update({ read: true }).eq('member_id', activeMemberId);
+    } catch {}
+  };
+  const addNotification = async (notification: Omit<AppNotification, 'id' | 'read' | 'createdAt'>) => {
+    try {
+      const { supabase } = await import('../services/db');
+      if (!supabase) return;
+      await supabase.from('notifications').insert({
+        member_id: (notification as any).memberId || (notification as any).member_id || null,
+        group_id: (notification as any).groupId || (notification as any).group_id || null,
+        title: notification.title, description: (notification as any).description,
+        message: (notification as any).message || (notification as any).description,
+        type: (notification as any).type || 'info', read: false,
+      });
+    } catch (e) { console.error(e); }
+  };
+  const clearAllNotifications = async () => {
+    try {
+      const { supabase } = await import('../services/db');
+      if (supabase && currentUserRole === 'member' && activeMemberId) await supabase.from('notifications').delete().eq('member_id', activeMemberId);
+      setNotifications([]);
+    } catch {}
+  };
   
   
   
