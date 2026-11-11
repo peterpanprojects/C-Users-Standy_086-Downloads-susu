@@ -324,18 +324,22 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 
 
-
-  
-  // --- NOTIFICATIONS - SUPABASE ONLY (SINGLE SOURCE) ---
+// --- NOTIFICATIONS - SUPABASE ONLY (SINGLE SOURCE) ---
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
-  // 1. Initial load
+  // 1. Initial load - FIXED: Don't load on landing/visitor
   useEffect(() => {
     const fetchNotifs = async () => {
+      const role = currentUserRole as string;
+      if (role === 'visitor' || role === 'guest' || !role) {
+        setNotifications([]);
+        return;
+      }
+      if (currentUserRole === 'member' && !activeMemberId) return;
+
       try {
         const { supabase } = await import('../services/db');
         if (!supabase) return;
-        if (currentUserRole === 'member' && !activeMemberId) return; // wait for member id
 
         let query = supabase
           .from('notifications')
@@ -376,13 +380,19 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
     fetchNotifs();
   }, [currentUserRole, activeMemberId]);
 
-  // 2. Realtime - listen for new inserts
+  // 2. Realtime - FIXED: Don't subscribe on landing
   useEffect(() => {
+    const role = currentUserRole as string;
+    if (role === 'visitor' || role === 'guest' || !role) {
+      setNotifications([]);
+      return;
+    }
+    if (currentUserRole === 'member' && !activeMemberId) return;
+
     let channel: any;
     (async () => {
       const { supabase } = await import('../services/db');
       if (!supabase) return;
-      if (currentUserRole === 'member' && !activeMemberId) return;
 
       const channelName = `notifs-${currentUserRole}-${activeMemberId || 'all'}-${Date.now()}`;
       const filter = currentUserRole === 'member' && activeMemberId ? `member_id=eq.${activeMemberId}` : undefined;
@@ -430,54 +440,6 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     };
   }, [currentUserRole, activeMemberId]);
-
-  const markNotificationAsRead = async (id: string) => {
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
-    try {
-      const { supabase } = await import('../services/db');
-      if (supabase) await supabase.from('notifications').update({ read: true }).eq('id', id);
-    } catch {}
-  };
-
-  const markAllNotificationsAsRead = async () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    try {
-      const { supabase } = await import('../services/db');
-      if (!supabase) return;
-      if (currentUserRole === 'member' && activeMemberId) {
-        await supabase.from('notifications').update({ read: true }).eq('member_id', activeMemberId);
-      }
-    } catch {}
-  };
-
-  const addNotification = async (notification: Omit<AppNotification, 'id' | 'read' | 'createdAt'>) => {
-    try {
-      const { supabase } = await import('../services/db');
-      if (!supabase) return;
-      await supabase.from('notifications').insert({
-        member_id: (notification as any).memberId || (notification as any).member_id || null,
-        group_id: (notification as any).groupId || (notification as any).group_id || null,
-        title: notification.title,
-        description: (notification as any).description,
-        message: (notification as any).message || (notification as any).description,
-        type: (notification as any).type || 'info',
-        read: false,
-      });
-      // Realtime will add it to state automatically
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const clearAllNotifications = async () => {
-    try {
-      const { supabase } = await import('../services/db');
-      if (supabase && currentUserRole === 'member' && activeMemberId) {
-        await supabase.from('notifications').delete().eq('member_id', activeMemberId);
-      }
-      setNotifications([]);
-    } catch {}
-  };
   
   
   
