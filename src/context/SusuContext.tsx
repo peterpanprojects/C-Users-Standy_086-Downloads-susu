@@ -1111,104 +1111,112 @@ const createAgent = (data: Partial<AgentAccount>): AgentAccount => {
 
 const inviteMember = async (name: string, email: string, phone: string) => {
   if (!group) throw new Error('Please select or create a Susu group first before inviting members.');
-  const token = `invite-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2,6)}`;
-  const randomCode = `SUSU-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+  const { supabase } = await import('../services/db');
+  if (!supabase) throw new Error('DB not ready');
+
+  const uniqueCode = `SUSU-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+  const token = `invite-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
   const newMemberId = `mem-${Date.now()}`;
   const groupMembers = members.filter(m => m.groupId === group.id);
   const position = groupMembers.length + 1;
-  
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
+
+  // 1. Local state for instant UI
   const newMember: GroupMember = {
     id: newMemberId,
     groupId: group.id,
     userId: `usr-${newMemberId}`,
-    name,
-    email,
-    phone,
+    name, email, phone,
     inviteStatus: 'pending',
     inviteToken: token,
-    uniqueCode: randomCode,
+    uniqueCode: uniqueCode,
     joinedAt: formatDateStr(new Date()),
     positionInRotation: position,
     reliabilityScore: 100,
     slotLocked: false
   };
-  
   setMembers(prev => [...prev, newMember]);
-  
-  try {
-    const { supabase } = await import('../services/db');
-    if (supabase) {
-      // Save member to Supabase too so other devices see it
-      await supabase.from('group_members').upsert({
-        id: newMemberId,
-        group_id: group.id,
-        name: name,
-        email: email,
-        phone: phone,
-        invite_status: 'pending',
-        invite_token: token,
-        unique_code: randomCode,
-        position_in_rotation: position
-      }, { onConflict: 'id' });
 
-      // Save invite with member_id - CRITICAL FOR ONE-TIME BURN
-      await supabase.from('group_invites').insert({
-        id: token,
-        group_id: group.id,
-        token: token,
-        member_id: newMemberId,
-        member_name: name,
-        member_phone: phone,
-        invited_email: email?.toLowerCase() || phone,
-        position: position,
-        status: 'pending',
-        created_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + 7*24*60*60*1000).toISOString()
-      });
-    }
+  try {
+    // 2. Save to Supabase - group_members
+    await supabase.from('group_members').upsert({
+      id: newMemberId,
+      group_id: group.id,
+      name, email, phone,
+      invite_status: 'pending',
+      invite_token: token,
+      unique_code: uniqueCode,
+      position_in_rotation: position
+    }, { onConflict: 'id' });
+
+    // 3. CRITICAL - Save to group_invites - THIS WAS MISSING BEFORE
+    await supabase.from('group_invites').insert({
+      id: token,
+      token: token,
+      group_id: group.id,
+      member_id: newMemberId,
+      member_name: name,
+      member_phone: phone,
+      invited_email: email?.toLowerCase() || phone,
+      member_email: email,
+      position: position,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+      expires_at: expiresAt
+    });
   } catch (e) {
     console.warn('Supabase invite save failed', e);
   }
-  
-  return { token, inviteUrl: `${window.location.origin}/invite/${token}`, uniqueCode: randomCode };
+
+  return { token, inviteUrl: `${window.location.origin}/invite/${token}`, uniqueCode };
 };
 
- const acceptInviteToken = async (token: string, name: string, phone: string): Promise<boolean> => {
+const acceptInviteToken = async (token: string, name: string, phone: string): Promise<boolean> => {
   try {
     const { supabase } = await import('../services/db');
     if (!supabase) return false;
-    
-    // The burn already happened in InviteAcceptPage
-    // Just verify it is accepted and activate member locally
-    const { data: invite } = await supabase
-      .from('group_invites')
-      .select('*')
-      .eq('token', token)
-      .single();
-      
-    if (!invite) return false;
-    if (invite.status !== 'accepted' && invite.status !== 'pending') return false;
 
-    setMembers(prev => prev.map(m => {
-      if (m.inviteToken === token || m.id === invite.member_id) {
-        return { 
-          ...m, 
-          name: name || m.name, 
-          phone: phone || m.phone, 
-          inviteStatus: 'active', 
-          inviteToken: undefined, 
-          slotLocked: true 
-        };
-      }
-      return m;
-    }));
-    
+    // 1. Validate invite is still pending and not expired
+    const { data: invite } = await supabase.from('group_invites').select('*').eq('token', token).single();
+    if (!invite) return false;
+    if (invite.status !== 'pending') return false;
+    if (invite.expires_at && new Date(invite.expires_at) < new Date()) return false;
+
+    // 2. Burn it NOW - only on accept click, not on page load
+    await supabase.from('group_invites').update({
+      status: 'accepted',
+      accepted_at: new Date().toISOString()
+    }).eq('token', token);
+
+    // 3. Activate member
+    setMembers(prev => prev.map(m => 
+      m.inviteToken === token || m.id === invite.member_id
+        ? { ...m, inviteStatus: 'active' as any, name: name || m.name, phone: phone || m.phone, slotLocked: true }
+        : m
+    ));
+
+    await supabase.from('group_members').update({
+      invite_status: 'active',
+      name: name,
+      phone: phone
+    }).eq('id', invite.member_id);
+
     return true;
   } catch (e) {
-    console.error('Accept failed', e);
+    console.error(e);
     return false;
   }
 };
+
+
+
+
+
+
+
+
+
+
 
   const removeMember = (memberId: string) => setMembers(prev => {
     const target = prev.find(m => m.id === memberId);

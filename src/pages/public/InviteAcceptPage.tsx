@@ -21,45 +21,63 @@ export const InviteAcceptPage: React.FC<InviteAcceptPageProps> = ({ token, onNav
   const [selectedSlot, setSelectedSlot] = useState<number>(1);
   const [accepted, setAccepted] = useState(false);
 
-  // 🔥 CHECK SUPABASE DIRECTLY ON LOAD - Not local members!
-  useEffect(() => {
-    const checkInvite = async () => {
-      try {
-        const { data, error } = await supabase.from('group_invites').select('*').eq('token', token).single();
-        
-        if (error || !data) {
-          setInviteValid(false);
-          setLoading(false);
-          return;
-        }
-        if (data.status !== 'pending') {
-          setInviteValid(false);
-          setLoading(false);
-          return;
-        }
 
-        // Valid invite
-        setInviteData(data);
-        setInviteValid(true);
-        setName(data.member_name || '');
-        setPhone(data.member_phone || '');
-        setSelectedSlot(data.position || 1);
-        
-        // Also try to find local member to prefill
-        const local = members.find(m => m.inviteToken === token || m.id === data.member_id);
-        if (local) {
-          setName(local.name || data.member_name || '');
-          setPhone(local.phone || data.member_phone || '');
-          setSelectedSlot(local.positionInRotation || data.position || 1);
+
+
+  useEffect(() => {
+  const checkInvite = async () => {
+    try {
+      // Try group_invites first
+      let { data, error } = await supabase.from('group_invites').select('*').eq('token', token).single();
+      
+      // Fallback to members table if not in group_invites (backward compat)
+      if ((error || !data) && token) {
+        const { data: m } = await supabase.from('group_members').select('*').eq('invite_token', token).single();
+        if (m) {
+          data = {
+            member_id: m.id,
+            member_name: m.name,
+            member_phone: m.phone,
+            status: m.invite_status === 'active' ? 'accepted' : 'pending',
+            expires_at: null
+          } as any;
         }
-      } catch (e) {
-        setInviteValid(false);
-      } finally {
-        setLoading(false);
       }
-    };
-    checkInvite();
-  }, [token, members]);
+
+      if (!data) { setInviteValid(false); setLoading(false); return; }
+
+      // Expiry check - 7 days
+      if (data.expires_at && new Date(data.expires_at) < new Date()) {
+        setInviteValid(false); setLoading(false); return;
+      }
+
+      // Only block if accepted more than 5 min ago (allows preview)
+      if (data.status !== 'pending') {
+        const acceptedAt = data.accepted_at ? new Date(data.accepted_at).getTime() : 0;
+        if (Date.now() - acceptedAt > 5 * 60 * 1000) {
+          setInviteValid(false); setLoading(false); return;
+        }
+      }
+
+      setInviteData(data);
+      setInviteValid(true);
+      setName(data.member_name || '');
+      setPhone(data.member_phone || '');
+      setSelectedSlot(data.position || 1);
+    } catch {
+      setInviteValid(false);
+    } finally {
+      setLoading(false);
+    }
+  };
+  checkInvite();
+}, [token]);
+
+
+
+
+
+
 
   const matchingMember = members.find((m) => m.inviteToken === token) || { id: inviteData?.member_id } as any;
 
@@ -89,35 +107,55 @@ export const InviteAcceptPage: React.FC<InviteAcceptPageProps> = ({ token, onNav
   }
 
   const handleAccept = async (e: React.FormEvent) => {
-    e.preventDefault();
+  e.preventDefault();
 
-    // Double-check status right before accepting
-    const { data: fresh } = await supabase.from('group_invites').select('status').eq('token', token).single();
-    if (!fresh || fresh.status !== 'pending') {
+  // Fresh check right before burning
+  const { data: fresh } = await supabase
+    .from('group_invites')
+    .select('status, expires_at, accepted_at')
+    .eq('token', token)
+    .single();
+
+  if (!fresh) {
+    alert("❌ Invalid link");
+    setInviteValid(false);
+    return;
+  }
+
+  if (fresh.expires_at && new Date(fresh.expires_at) < new Date()) {
+    alert("❌ Link expired - ask Agent for new one");
+    setInviteValid(false);
+    return;
+  }
+
+  // Allow 5 min grace for preview
+  if (fresh.status !== 'pending') {
+    const acceptedAt = fresh.accepted_at ? new Date(fresh.accepted_at).getTime() : 0;
+    if (Date.now() - acceptedAt > 5 * 60 * 1000) {
       alert("❌ This link has already been used! Ask Agent for a new one.");
       setInviteValid(false);
       return;
     }
+  }
 
-    if (selectedSlot && matchingMember?.id) {
-      selectRotationSlot(matchingMember.id, selectedSlot, 'super_admin');
-    }
-    
-    // AWAIT the burn
-    const ok = await acceptInviteToken(token, name, phone);
-    
-    if (!ok) {
-      alert("Failed to accept - link may have just been used.");
-      setInviteValid(false);
-      return;
-    }
+  if (selectedSlot && matchingMember?.id) {
+    selectRotationSlot(matchingMember.id, selectedSlot, 'super_admin');
+  }
+  
+  const ok = await acceptInviteToken(token, name, phone);
+  
+  if (!ok) {
+    alert("Failed to accept - link may have just been used.");
+    setInviteValid(false);
+    return;
+  }
 
-    setAccepted(true);
-    setTimeout(() => {
-      setRole('member', matchingMember.id || inviteData.member_id);
-      onNavigate('/member/dashboard');
-    }, 1500);
-  };
+  setAccepted(true);
+  setTimeout(() => {
+    setRole('member', matchingMember.id || inviteData.member_id);
+    onNavigate('/member/dashboard');
+  }, 1500);
+};
 
   return (
     <div style={{ maxWidth: '480px', margin: '3rem auto' }}>
