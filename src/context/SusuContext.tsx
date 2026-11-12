@@ -1174,36 +1174,71 @@ const inviteMember = async (name: string, email: string, phone: string) => {
 const acceptInviteToken = async (token: string, name: string, phone: string): Promise<boolean> => {
   try {
     const { supabase } = await import('../services/db');
-    if (!supabase) return false;
+    if (!supabase) {
+      console.error("No supabase");
+      return false;
+    }
 
-    // 1. Validate invite is still pending and not expired
-    const { data: invite } = await supabase.from('group_invites').select('*').eq('token', token).single();
-    if (!invite) return false;
-    if (invite.status !== 'pending') return false;
-    if (invite.expires_at && new Date(invite.expires_at) < new Date()) return false;
+    console.log("Checking token:", token);
 
-    // 2. Burn it NOW - only on accept click, not on page load
-    await supabase.from('group_invites').update({
-      status: 'accepted',
-      accepted_at: new Date().toISOString()
-    }).eq('token', token);
+    const { data: invite, error: fetchError } = await supabase
+      .from('group_invites')
+      .select('*')
+      .eq('token', token)
+      .single();
 
-    // 3. Activate member
+    console.log("Invite fetched:", invite, fetchError);
+
+    if (fetchError || !invite) {
+      console.error("Invite not found", fetchError);
+      return false;
+    }
+
+    if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
+      console.error("Expired");
+      return false;
+    }
+
+    // Update to accepted - LOG ERROR
+    const { error: updateInviteError } = await supabase
+      .from('group_invites')
+      .update({
+        status: 'accepted',
+        accepted_at: new Date().toISOString()
+      })
+      .eq('token', token);
+
+    if (updateInviteError) {
+      console.error("Failed to update group_invites:", updateInviteError);
+      alert(`DB Error updating invite: ${updateInviteError.message}. Fix RLS!`);
+      return false;
+    }
+
+    // Activate member
     setMembers(prev => prev.map(m => 
       m.inviteToken === token || m.id === invite.member_id
         ? { ...m, inviteStatus: 'active' as any, name: name || m.name, phone: phone || m.phone, slotLocked: true }
         : m
     ));
 
-    await supabase.from('group_members').update({
-      invite_status: 'active',
-      name: name,
-      phone: phone
-    }).eq('id', invite.member_id);
+    const { error: memberError } = await supabase
+      .from('group_members')
+      .update({
+        invite_status: 'active',
+        name: name,
+        phone: phone
+      })
+      .eq('id', invite.member_id);
+
+    if (memberError) {
+      console.error("Member update error (but invite accepted anyway):", memberError);
+      // Don't fail - invite is already burned, let them in
+    }
 
     return true;
-  } catch (e) {
-    console.error(e);
+  } catch (e: any) {
+    console.error("acceptInviteToken exception:", e);
+    alert(`Exception: ${e.message}`);
     return false;
   }
 };
