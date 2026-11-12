@@ -24,39 +24,25 @@ export const InviteAcceptPage: React.FC<InviteAcceptPageProps> = ({ token, onNav
 
 
 
-  useEffect(() => {
+useEffect(() => {
   const checkInvite = async () => {
     try {
-      // Try group_invites first
-      let { data, error } = await supabase.from('group_invites').select('*').eq('token', token).single();
+      const { data, error } = await supabase.from('group_invites').select('*').eq('token', token).single();
       
-      // Fallback to members table if not in group_invites (backward compat)
-      if ((error || !data) && token) {
-        const { data: m } = await supabase.from('group_members').select('*').eq('invite_token', token).single();
-        if (m) {
-          data = {
-            member_id: m.id,
-            member_name: m.name,
-            member_phone: m.phone,
-            status: m.invite_status === 'active' ? 'accepted' : 'pending',
-            expires_at: null
-          } as any;
-        }
+      if (error || !data) {
+        setInviteValid(false); setLoading(false); return;
       }
 
-      if (!data) { setInviteValid(false); setLoading(false); return; }
-
-      // Expiry check - 7 days
+      // Expire after 7 days
       if (data.expires_at && new Date(data.expires_at) < new Date()) {
         setInviteValid(false); setLoading(false); return;
       }
 
-      // Only block if accepted more than 5 min ago (allows preview)
+      // 🔒 ONE-TIME: If not pending, it's used — block instantly
       if (data.status !== 'pending') {
-        const acceptedAt = data.accepted_at ? new Date(data.accepted_at).getTime() : 0;
-        if (Date.now() - acceptedAt > 5 * 60 * 1000) {
-          setInviteValid(false); setLoading(false); return;
-        }
+        setInviteValid(false);
+        setLoading(false);
+        return;
       }
 
       setInviteData(data);
@@ -109,33 +95,22 @@ export const InviteAcceptPage: React.FC<InviteAcceptPageProps> = ({ token, onNav
   const handleAccept = async (e: React.FormEvent) => {
   e.preventDefault();
 
-  // Fresh check right before burning
   const { data: fresh } = await supabase
     .from('group_invites')
-    .select('status, expires_at, accepted_at')
+    .select('status, expires_at')
     .eq('token', token)
     .single();
 
-  if (!fresh) {
-    alert("❌ Invalid link");
+  if (!fresh || fresh.status !== 'pending') {
+    alert("❌ This link has already been used! One-time link only.");
     setInviteValid(false);
     return;
   }
 
   if (fresh.expires_at && new Date(fresh.expires_at) < new Date()) {
-    alert("❌ Link expired - ask Agent for new one");
+    alert("❌ Link expired");
     setInviteValid(false);
     return;
-  }
-
-  // Allow 5 min grace for preview
-  if (fresh.status !== 'pending') {
-    const acceptedAt = fresh.accepted_at ? new Date(fresh.accepted_at).getTime() : 0;
-    if (Date.now() - acceptedAt > 5 * 60 * 1000) {
-      alert("❌ This link has already been used! Ask Agent for a new one.");
-      setInviteValid(false);
-      return;
-    }
   }
 
   if (selectedSlot && matchingMember?.id) {
@@ -145,7 +120,7 @@ export const InviteAcceptPage: React.FC<InviteAcceptPageProps> = ({ token, onNav
   const ok = await acceptInviteToken(token, name, phone);
   
   if (!ok) {
-    alert("Failed to accept - link may have just been used.");
+    alert("Failed to accept");
     setInviteValid(false);
     return;
   }
