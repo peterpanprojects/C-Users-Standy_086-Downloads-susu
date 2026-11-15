@@ -86,6 +86,42 @@ export const DeveloperAdminPage: React.FC<DeveloperAdminPageProps> = ({ initialT
   const [isEditMemberProfileOpen, setIsEditMemberProfileOpen] = useState(false);
   const [isDeleteMemberOpen, setIsDeleteMemberOpen] = useState(false);
 
+// Paystack Subaccount - Super Admin
+const [creatingSub, setCreatingSub] = useState<string | null>(null);
+
+const createAgentSubaccount = async (agent: AgentAccount) => {
+  const kyc: any = (agent as any).kycData || {};
+  const fullName = kyc.fullName || `${agent.firstName} ${agent.surname}`.trim();
+  const momoNumber = kyc.payoutMomoNumber || agent.phone;
+  const network = (kyc.payoutMomoNetwork || 'MTN').toUpperCase();
+  const bankCode = network.includes('MTN') ? '501' : network.includes('TELECEL') ? '502' : network.includes('AIRTEL') ? '503' : '501';
+
+  if (!momoNumber) return alert('No MoMo number for this agent. Open Profile and add payout MoMo number first.');
+  if (!confirm(`Create Paystack subaccount for ${fullName} - ${momoNumber} (${network})?`)) return;
+
+  setCreatingSub(agent.id);
+  try {
+    const res = await fetch('https://begrdvkjsosozgyvhzpu.supabase.co/functions/v1/create-subaccount', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer sb_publishable_eUNpmFBwR5MbEKD6o8vvtQ_8XO-O-GS',
+      },
+      body: JSON.stringify({ agentName: fullName, momoNumber, bankCode, percentage: 98 }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    alert(`✅ Subaccount created!\nCode: ${data.subaccount_code}\nRecipient: ${data.recipient_code}\n\nSave this code in agent notes for now.`);
+  } catch (e: any) {
+    alert('Failed: ' + e.message);
+  } finally {
+    setCreatingSub(null);
+  }
+};
+
+
+
+
   // Feature Toggles State
   const [featureFlags, setFeatureFlags] = useState({
     paystackLive: true,
@@ -1026,79 +1062,85 @@ const renderDocumentPreview = (label: string, src?: string) => {
                               {agent.licenseNumber || 'Lic: PENDING'}
                             </div>
                           </td>
+{/* Actions */}
+<td style={{ textAlign: 'right' }}>
+  <div style={{ display: 'flex', justifyContent: 'flex-end', flexWrap: 'wrap', gap: '0.35rem' }}>
+    <button
+      onClick={() => {
+        setDossierAgent(agent);
+        setIsKycDossierOpen(true);
+      }}
+      className="btn-gold"
+      style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+    >
+      <Eye size={12} /> KYC
+    </button>
 
-                          {/* Actions */}
-                          <td style={{ textAlign: 'right' }}>
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', flexWrap: 'wrap', gap: '0.35rem' }}>
-                              <button
-                                onClick={() => {
-                                  setDossierAgent(agent);
-                                  setIsKycDossierOpen(true);
-                                }}
-                                className="btn-gold"
-                                style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
-                                title="Inspect full KYC verification dossier and uploaded documents"
-                              >
-                                <Eye size={12} /> KYC
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setActiveAgentId(agent.id);
-                                  setRole('agent');
-                                  onNavigate('/agent/dashboard');
-                                }}
-                                className="btn-secondary"
-                                style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem', fontWeight: 600 }}
-                                title="Login as this agent"
-                              >
-                                Impersonate
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedAgent(agent);
-                                  setIsAddGroupOpen(true);
-                                }}
-                                className="btn-gold"
-                                style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem', fontWeight: 600 }}
-                                title="Create another Susu group for this agent"
-                              >
-                                + Add Group
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedAgent(agent);
-                                  setIsEditAgentOpen(true);
-                                }}
-                                className="btn-outline"
-                                style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem' }}
-                                title="Edit Agent basic details"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedAgent(agent);
-                                  setIsEditAgentProfileOpen(true);
-                                }}
-                                className="btn-outline"
-                                style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem' }}
-                                title="Edit full identity and KYC details"
-                              >
-                                Profile
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedAgent(agent);
-                                  setIsDeleteAgentOpen(true);
-                                }}
-                                className="btn-danger"
-                                style={{ padding: '0.3rem 0.55rem', fontSize: '0.75rem' }}
-                                title="Delete agent"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </td>
+    <button
+      onClick={() => createAgentSubaccount(agent)}
+      disabled={creatingSub === agent.id}
+      style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem', fontWeight: 800, background: '#FFD700', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+    >
+      {creatingSub === agent.id ? 'Creating...' : '💰 Paystack'}
+    </button>
+
+    <button
+      onClick={() => {
+        setActiveAgentId(agent.id);
+        setRole('agent');
+        onNavigate('/agent/dashboard');
+      }}
+      className="btn-secondary"
+      style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem', fontWeight: 600 }}
+    >
+      Impersonate
+    </button>
+
+    <button
+      onClick={() => {
+        setSelectedAgent(agent);
+        setIsAddGroupOpen(true);
+      }}
+      className="btn-gold"
+      style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem', fontWeight: 600 }}
+    >
+      + Add Group
+    </button>
+
+    <button
+      onClick={() => {
+        setSelectedAgent(agent);
+        setIsEditAgentOpen(true);
+      }}
+      className="btn-outline"
+      style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem' }}
+    >
+      Edit
+    </button>
+
+    <button
+      onClick={() => {
+        setSelectedAgent(agent);
+        setIsEditAgentProfileOpen(true);
+      }}
+      className="btn-outline"
+      style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem' }}
+    >
+      Profile
+    </button>
+
+    <button
+      onClick={() => {
+        setSelectedAgent(agent);
+        setIsDeleteAgentOpen(true);
+      }}
+      className="btn-danger"
+      style={{ padding: '0.3rem 0.55rem', fontSize: '0.75rem' }}
+    >
+      Delete
+    </button>
+  </div>
+</td>
                         </tr>
                       );
                     })
