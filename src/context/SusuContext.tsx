@@ -66,6 +66,7 @@ export interface SusuContextType {
   createGroup: (name: string, fixedDailyAmount: number, cycleStartDate?: string, currency?: string, agentId?: string) => SusuGroup;
   updateGroupSettings: (settings: Partial<SusuGroup>, groupId?: string) => void;
   updateAgentPaymentConfig: (config: Partial<AgentPaymentConfig>) => void;
+  updateAgentPaymentConfigForAgent: (agentId: string, config: Partial<AgentPaymentConfig>) => void;
   updatePlatformPaymentConfig: (config: Partial<SuperAdminPaymentConfig>) => void;
   updatePlatformSettings: (settings: Partial<PlatformSettings>) => void;
   registerAgentKyc: (kycData: AgentKycData) => void;
@@ -683,6 +684,17 @@ const [agents, setAgents] = useState<AgentAccount[]>(() => {
       return updated;
     });
   };
+
+
+const updateAgentPaymentConfigForAgent = (agentId: string, config: Partial<AgentPaymentConfig>) => {
+  setAgentPaymentConfigs(prev => {
+    const current = prev[agentId] || INITIAL_AGENT_PAYMENT_CONFIG;
+    const updated = {...prev, [agentId]: {...current, ...config } };
+    try { localStorage.setItem('susu_agent_payment_configs', JSON.stringify(updated)); } catch {}
+    return updated;
+  });
+};
+
 
   const [platformPaymentConfig, setPlatformPaymentConfig] = useState<SuperAdminPaymentConfig>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -1463,7 +1475,7 @@ const acceptInviteToken = async (token: string, name: string, phone: string): Pr
     <SusuContext.Provider value={{
       currentUserRole, activeMemberId, activeUser: getActiveUser(), group, groups, myGroups, myMembers, myPayments, activeGroupId, setActiveGroupId, members, schedule, payments, posts,
       agentAccount, agents, activeAgentId, setActiveAgentId, createAgent, agentPaymentConfig, platformPaymentConfig, platformSettings,
-      setRole, createGroup, updateGroupSettings, updateAgentPaymentConfig, updatePlatformPaymentConfig, updatePlatformSettings,
+      setRole, createGroup, updateGroupSettings, updateAgentPaymentConfig, updateAgentPaymentConfigForAgent, updatePlatformPaymentConfig, updatePlatformSettings,
       registerAgentKyc, activateAgentAccount, approveAgentKyc, rejectAgentKyc, updateAgentAccount, updateAgentKyc, deleteAgent,
       updateMemberProfile, loginWithUniqueCode, inviteMember, acceptInviteToken, removeMember, deleteGroup,
       markCashPayment, processPayment, reorderCalendar, remindMember, shuffleCalendar, addFeedPost, resetDemoData, resetSystemData,

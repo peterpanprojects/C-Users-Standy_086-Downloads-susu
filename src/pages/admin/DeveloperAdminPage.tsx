@@ -53,7 +53,8 @@ export const DeveloperAdminPage: React.FC<DeveloperAdminPageProps> = ({ initialT
     groups,
     setActiveAgentId,
     approveAgentKyc,
-    rejectAgentKyc
+    rejectAgentKyc,
+updateAgentPaymentConfigForAgent
   } = useSusu();
 
   const [activeTab, setActiveTab] = useState<'overview' | 'agents' | 'groups' | 'users' | 'vault' | 'payments'>(initialTab);
@@ -111,7 +112,15 @@ const createAgentSubaccount = async (agent: AgentAccount) => {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed');
-    alert(`✅ Subaccount created!\nCode: ${data.subaccount_code}\nRecipient: ${data.recipient_code}\n\nSave this code in agent notes for now.`);
+   // ✅ SAVE IT so the agent's dashboard turns green
+updateAgentPaymentConfigForAgent(agent.id, {
+  momoNumber: momoNumber,
+  momoProvider: network,
+  paystackSubaccountCode: data.subaccount_code,
+  // @ts-ignore - store recipient too if you want it later
+  paystackRecipientCode: data.recipient_code,
+});
+alert(`✅ Subaccount created & SAVED for ${fullName}!\nCode: ${data.subaccount_code}\n\nAgent dashboard will now show ✅ Connected.`);
   } catch (e: any) {
     alert('Failed: ' + e.message);
   } finally {
