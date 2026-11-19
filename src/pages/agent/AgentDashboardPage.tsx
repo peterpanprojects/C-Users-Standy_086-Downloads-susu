@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+
+
 import { useSusu } from '../../context/SusuContext';
 import { getWeekDays, formatShortDate, getDayOfWeekShort } from '../../utils/dates';
 import { Banknote, Users, Calendar, ArrowUpRight, CheckCircle2, Clock, AlertCircle, Plus, CreditCard, Sliders, Layers, MessageCircle } from 'lucide-react';
@@ -18,6 +20,7 @@ export const AgentDashboardPage: React.FC<AgentDashboardPageProps> = ({ onNaviga
     group,
     groups,
     myGroups,
+    agentPaymentConfig,
     activeGroupId,
     setActiveGroupId,
     members,
@@ -35,27 +38,13 @@ export const AgentDashboardPage: React.FC<AgentDashboardPageProps> = ({ onNaviga
   const [newGroupAmount, setNewGroupAmount] = useState(20);
   const [newGroupCurrency, setNewGroupCurrency] = useState('GH₵');
   const [activeTab, setActiveTab] = useState<'overview' | 'messages'>('overview');
+  
+  // --- Paystack Payout Status - from SusuContext ---
+const payoutMomo = agentPaymentConfig?.momoNumber || '';
+const payoutSubaccount = agentPaymentConfig?.paystackSubaccountCode || '';
+const maskedMomo = payoutMomo ? payoutMomo.slice(0, 3) + '****' + payoutMomo.slice(-3) : null;
+const isConnected = !!payoutSubaccount;
 
-  if (!group) {
-    return (
-      <div style={{ maxWidth: '560px', margin: '3rem auto', padding: '0 1rem' }}>
-        <div className="card" style={{ padding: '3rem 2rem', textAlign: 'center' }}>
-          <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🏦</div>
-          <h1 style={{ fontSize: '1.8rem', marginBottom: '0.5rem' }}>Welcome, Agent!</h1>
-          <p style={{ color: 'var(--color-slate-600)', fontSize: '0.95rem', marginBottom: '2rem' }}>
-            Your account has been verified. Set up your first Susu group.
-          </p>
-          {!showCreateGroup? (
-            <button className="btn-gold" style={{ padding: '0.9rem 2.5rem' }} onClick={() => setShowCreateGroup(true)}>+ Create My Susu Group</button>
-          ) : (
-            <form onSubmit={(e) => { e.preventDefault(); if (newGroupName.trim()) { const { createGroup } = useSusu(); } }} style={{ textAlign: 'left' }}>
-              {/* create form */}
-            </form>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   const currentGroupMembers = members.filter((m) => m.groupId === group.id);
   const currentWeek = schedule.find((s) => s.status === 'current') || schedule[0];
@@ -106,6 +95,27 @@ export const AgentDashboardPage: React.FC<AgentDashboardPageProps> = ({ onNaviga
           <button className="btn-outline" onClick={() => onNavigate('/agent/payment-config')}><CreditCard size={16} /> Payment Config</button>
           <button className="btn-gold" onClick={() => setInviteModalOpen(true)}><Plus size={16} /> Invite</button>
           <button className="btn-primary" onClick={() => setManualPayModalOpen(true)}><Banknote size={16} /> Cash Override</button>
+        </div>
+      </div>
+
+      {/* Payout Account - Paystack Verification */}
+      <div className="card" style={{ padding: '1rem 1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', borderLeft: isConnected ? '4px solid #059669' : '4px solid #ef4444', background: isConnected ? '#ecfdf5' : '#fef2f2' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{ fontSize: '1.8rem' }}>💰</div>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>Payout Account</div>
+            <div style={{ fontSize: '0.85rem', color: 'var(--color-slate-600)' }}>
+              MoMo: <strong>{maskedMomo || 'Not set'}</strong>
+              {payoutSubaccount && <span> • Subaccount: <strong>{payoutSubaccount}</strong></span>}
+            </div>
+          </div>
+        </div>
+        <div>
+          {isConnected ? (
+            <span style={{ background: '#059669', color: 'white', padding: '6px 12px', borderRadius: '999px', fontSize: '0.8rem', fontWeight: 700 }}>✅ Connected - Paystack Verified</span>
+          ) : (
+            <span style={{ background: '#ef4444', color: 'white', padding: '6px 12px', borderRadius: '999px', fontSize: '0.8rem', fontWeight: 700 }}>❌ Not Connected - Contact Super Admin</span>
+          )}
         </div>
       </div>
 
