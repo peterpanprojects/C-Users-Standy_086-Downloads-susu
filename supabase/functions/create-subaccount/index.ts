@@ -7,15 +7,25 @@ const corsHeaders = {
 }
 
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders })
   }
 
   try {
-    const { agentName, momoNumber, bankCode, percentage } = await req.json()
+    const { agentName, momoNumber, percentage } = await req.json()
 
-    // 1. Create Transfer Recipient in Paystack
+    // Normalize phone: +233557388663 -> 0557388663
+    let phone = String(momoNumber || "").replace(/\s/g, "")
+    if (phone.startsWith("+233")) phone = "0" + phone.slice(4)
+    if (phone.startsWith("233")) phone = "0" + phone.slice(3)
+
+    // Auto-detect Ghana network from prefix - Paystack Live codes
+    const prefix = phone.slice(0, 3)
+    let bankCode = "MTN" // default MTN: 024,025,053,054,055,059
+    if (["020", "050", "023"].includes(prefix)) bankCode = "VOD" // Telecel
+    if (["026", "027", "056", "057"].includes(prefix)) bankCode = "ATL" // AirtelTigo
+
+    // 1. Create Transfer Recipient
     const recipientRes = await fetch("https://api.paystack.co/transferrecipient", {
       method: "POST",
       headers: {
@@ -25,7 +35,7 @@ serve(async (req) => {
       body: JSON.stringify({
         type: "mobile_money",
         name: agentName,
-        account_number: momoNumber,
+        account_number: phone,
         bank_code: bankCode,
         currency: "GHS",
       }),
@@ -43,7 +53,7 @@ serve(async (req) => {
       body: JSON.stringify({
         business_name: agentName,
         settlement_bank: bankCode,
-        account_number: momoNumber,
+        account_number: phone,
         percentage_charge: percentage,
         description: `Susu Agent - ${agentName}`,
       }),
