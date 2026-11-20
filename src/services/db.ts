@@ -103,11 +103,22 @@ export const DatabaseService = {
           console.log('✅ Loaded platformPaymentConfig from Supabase super_admin:', platformPaymentConfig.masterPublicKey?.substring(0,20));
         }
 
-        // Parse agent payment configs too
+        // ✅ CLOUD ONLY: Parse agent payout configs from Supabase
         let agentPaymentConfigs: Record<string, AgentPaymentConfig> = {};
+        let agentPaymentConfig: AgentPaymentConfig | null = null;
         (paymentConfigsRes.data || []).forEach((r: any) => {
-          if (r.entity_type === 'agent' && r.config) {
-            // If you use agent_id in future, map it here
+          if (r.config && typeof r.entity_type === 'string' && r.entity_type.startsWith('agent_')) {
+            const agentIdFromRow = r.entity_id || r.entity_type.replace('agent_', '');
+            const cfg = r.config as any;
+            const parsed = {
+              momoNumber: cfg.momoNumber || cfg.momo_number || '',
+              momoName: cfg.momoName || cfg.momo_name || '',
+              subaccountCode: cfg.subaccountCode || cfg.subaccount_code || cfg.subaccount || '',
+              isConnected: Boolean(cfg.subaccountCode || cfg.subaccount_code || cfg.subaccount || cfg.momoNumber),
+              provider: cfg.provider || 'paystack',
+                        } as unknown as AgentPaymentConfig;
+            agentPaymentConfigs[agentIdFromRow] = parsed;
+            if (agentIdFromRow === currentAgentId) agentPaymentConfig = parsed;
           }
         });
 
@@ -119,8 +130,8 @@ export const DatabaseService = {
           posts: (postsRes.data as any) || [],
           agents: (agentRes.data || []).map((agt: any) => ({ id: agt.id, firstName: agt.first_name, surname: agt.surname, email: agt.email, phone: agt.phone, avatarUrl: agt.avatar_url || '', isOtpVerified: agt.is_otp_verified, isKycSubmitted: agt.is_kyc_submitted, isActivated: agt.is_activated, activationFeeAmount: Number(agt.activation_fee_amount || 0), activationPaidAt: agt.activation_paid_at, activationTxRef: agt.activation_tx_ref, adminApprovalStatus: agt.admin_approval_status, adminApprovedAt: agt.admin_approved_at, adminReviewNotes: agt.admin_review_notes, licenseNumber: agt.license_number, kycData: agt.kyc_data })),
           agentAccount: null,
-          agentPaymentConfig: null,
-          agentPaymentConfigs,
+                    agentPaymentConfig: agentPaymentConfig,
+          agentPaymentConfigs: agentPaymentConfigs,
           platformPaymentConfig, // ✅ NOW IT'S LOADED!
           liveSupportConfig: liveConfigRes.data || null,
           notifications: (notifsRes.data as any) || [],
@@ -172,8 +183,26 @@ async getAgentKyc(agentId: string) {
           }
         }, { onConflict: 'entity_type' });
       }
+            // ✅ CLOUD ONLY: Save agent payout so phone + laptop both see it
+      const agentIdToSave = state.agentAccount?.id || (state.agents?.[0] as any)?.id || (localStorage.getItem('susu_current_agent_id') || '');
+      if (state.agentPaymentConfig && agentIdToSave) {
+        const cfg: any = state.agentPaymentConfig;
+        await supabase.from('payment_configs').upsert({
+          entity_type: `agent_${agentIdToSave}`,
+          entity_id: agentIdToSave,
+          config: {
+            momoNumber: cfg.momoNumber || '',
+            momoName: cfg.momoName || '',
+            subaccountCode: cfg.subaccountCode || cfg.subaccount || '',
+            provider: 'paystack',
+            isConnected: true,
+          }
+        }, { onConflict: 'entity_type' });
+      }
     } catch (err) { console.warn('Supabase sync warning:', err); }
+    
   },
+  
   async createGroup(newGroup: SusuGroup): Promise<void> {
     if (!supabase) return;
     try {
