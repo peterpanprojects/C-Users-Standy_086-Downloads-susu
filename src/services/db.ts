@@ -1,4 +1,4 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+.import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { AgentAccount, AgentPaymentConfig, AppNotification, DailyPayment, FeedPost, GroupMember, LiveSupportConfig, SuperAdminPaymentConfig, SusuGroup } from '../types/susu';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
@@ -53,7 +53,7 @@ export const DatabaseService = {
         const [paymentsRes, postsRes, agentRes, paymentConfigsRes, liveConfigRes, notifsRes] = await Promise.all([
           myGroupIds.length > 0? supabase.from('daily_payments').select('*').in('group_id', myGroupIds) : Promise.resolve({ data: [] } as any),
           supabase.from('feed_posts').select('*').order('created_at', { ascending: false }),
-          supabase.from('agent_accounts').select('*').order('created_at', { ascending: false }),
+          supabase.from('agent_accounts').select('id, first_name, surname, email, phone, avatar_url, is_otp_verified, is_kyc_submitted, is_activated, activation_fee_amount, activation_paid_at, activation_tx_ref, admin_approval_status, admin_approved_at, admin_review_notes, license_number, status, created_at').order('created_at', { ascending: false }),
           supabase.from('payment_configs').select('*'), // ✅ FETCH ALL CONFIGS
           supabase.from('live_support_configs').select('*').limit(1).maybeSingle(),
           supabase.from('notifications').select('*').order('created_at', { ascending: false })
@@ -132,6 +132,15 @@ export const DatabaseService = {
     return { group: null, groups: [], members: [], payments: [], posts: [], agentAccount: null, agents: [], agentPaymentConfig: null, platformPaymentConfig: null, liveSupportConfig: null, notifications: [] };
   },
 
+async getAgentKyc(agentId: string) {
+  if (!supabase) return null;
+  const { data } = await supabase.from('agent_accounts').select('kyc_data').eq('id', agentId).maybeSingle();
+  return (data as any)?.kyc_data || null;
+  
+},
+
+
+
   async persistState(state: DatabaseState): Promise<void> {
     const integrity = validateDatabaseIntegrity(state);
     if (!integrity.valid) throw new Error(integrity.error);
@@ -139,7 +148,7 @@ export const DatabaseService = {
     if (!supabase) return;
     try {
       if (state.groups?.length) await supabase.from('susu_groups').upsert(state.groups.map(g => ({ id: g.id, name: g.name, agent_id: g.agentId, fixed_daily_amount: g.fixedDailyAmount, currency: g.currency, cycle_start_date: g.cycleStartDate, status: g.status, paystack_public_key: (g as any).paystackPublicKey || '' })), { onConflict: 'id' });
-      if (state.agents?.length) await supabase.from('agent_accounts').upsert(state.agents.map(a => ({ id: a.id, first_name: a.firstName, surname: a.surname, email: a.email, phone: a.phone, is_otp_verified: a.isOtpVerified, is_kyc_submitted: a.isKycSubmitted, is_activated: a.isActivated, activation_fee_amount: a.activationFeeAmount, activation_paid_at: a.activationPaidAt, activation_tx_ref: a.activationTxRef, admin_approval_status: a.adminApprovalStatus, license_number: a.licenseNumber, kyc_data: a.kycData })), { onConflict: 'id' });
+      if (state.agents?.length) await supabase.from('agent_accounts').upsert(state.agents.map(a => ({ id: a.id, first_name: a.firstName, surname: a.surname, email: a.email, phone: a.phone, is_otp_verified: a.isOtpVerified, is_kyc_submitted: a.isKycSubmitted, is_activated: a.isActivated, activation_fee_amount: a.activationFeeAmount, activation_paid_at: a.activationPaidAt, activation_tx_ref: a.activationTxRef, admin_approval_status: a.adminApprovalStatus, admin_approved_at: a.adminApprovedAt, admin_review_notes: a.adminReviewNotes, license_number: a.licenseNumber, ...(a.kycData ? { kyc_data: a.kycData } : {}) })), { onConflict: 'id' });
       if (state.members?.length) await supabase.from('group_members').upsert(state.members.map(m => ({ id: m.id, group_id: m.groupId, user_id: m.userId, name: m.name, email: m.email, phone: m.phone, invite_status: m.inviteStatus, invite_token: m.inviteToken, unique_code: m.uniqueCode, joined_at: m.joinedAt, position_in_rotation: m.positionInRotation, reliability_score: (m as any).reliabilityScore || 100 })), { onConflict: 'id' });
       if (state.payments?.length) await supabase.from('daily_payments').upsert(state.payments.map(p => ({ id: p.id, group_id: p.groupId, member_id: p.memberId, payment_date: p.paymentDate, amount: p.amount, status: p.status, payment_method: p.paymentMethod, paystack_reference: p.paystackReference, paid_at: p.paidAt })), { onConflict: 'id' });
 

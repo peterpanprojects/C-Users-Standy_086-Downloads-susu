@@ -779,9 +779,14 @@ const updateAgentPaymentConfigForAgent = (agentId: string, config: Partial<Agent
 
 
 
-
+const hasSkippedFirstSave = React.useRef(false);
   useEffect(() => {
     if (!isDbLoaded) return;
+      // Skip the first save right after loading - data is already in DB
+  if (!hasSkippedFirstSave.current) {
+    hasSkippedFirstSave.current = true;
+    return;
+  }
 
     const timeout = setTimeout(() => {
 const stateToSave = {
