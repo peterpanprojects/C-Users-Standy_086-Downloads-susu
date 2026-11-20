@@ -1,4 +1,4 @@
-.import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { AgentAccount, AgentPaymentConfig, AppNotification, DailyPayment, FeedPost, GroupMember, LiveSupportConfig, SuperAdminPaymentConfig, SusuGroup } from '../types/susu';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
