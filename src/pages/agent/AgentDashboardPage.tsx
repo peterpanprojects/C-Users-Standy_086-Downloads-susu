@@ -43,7 +43,7 @@ export const AgentDashboardPage: React.FC<AgentDashboardPageProps> = ({ onNaviga
 const payoutMomo = agentPaymentConfig?.momoNumber || '';
 const payoutSubaccount = agentPaymentConfig?.paystackSubaccountCode || '';
 const maskedMomo = payoutMomo ? payoutMomo.slice(0, 3) + '****' + payoutMomo.slice(-3) : null;
-const isConnected = !!payoutSubaccount;
+const isConnected = !!payoutSubaccount || !!payoutMomo;
 
 
   const currentGroupMembers = members.filter((m) => m.groupId === group.id);
@@ -112,7 +112,7 @@ const isConnected = !!payoutSubaccount;
         </div>
         <div>
           {isConnected ? (
-            <span style={{ background: '#059669', color: 'white', padding: '6px 12px', borderRadius: '999px', fontSize: '0.8rem', fontWeight: 700 }}>✅ Connected - Paystack Verified</span>
+            <span style={{ background: '#059669', color: 'white', padding: '6px 12px', borderRadius: '999px', fontSize: '0.8rem', fontWeight: 700 }}>{payoutSubaccount ? '✅ Connected - Paystack Verified' : '✅ Connected - MoMo Saved'}</span>
           ) : (
             <span style={{ background: '#ef4444', color: 'white', padding: '6px 12px', borderRadius: '999px', fontSize: '0.8rem', fontWeight: 700 }}>❌ Not Connected - Contact Super Admin</span>
           )}
