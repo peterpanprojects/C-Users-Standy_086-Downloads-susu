@@ -675,25 +675,81 @@ const [agents, setAgents] = useState<AgentAccount[]>(() => {
     return INITIAL_AGENT_PAYMENT_CONFIG;
   })();
 
-  const updateAgentPaymentConfig = (config: Partial<AgentPaymentConfig>) => {
+   const updateAgentPaymentConfig = (config: Partial<AgentPaymentConfig>) => {
     const aid = activeAgentId || 'default';
     setAgentPaymentConfigs(prev => {
       const current = prev[aid] || INITIAL_AGENT_PAYMENT_CONFIG;
-      const updated = {...prev, [aid]: {...current,...config } };
+      const updated = { ...prev, [aid]: { ...current, ...config } };
       try { localStorage.setItem('susu_agent_payment_configs', JSON.stringify(updated)); } catch {}
       return updated;
     });
+
+    // ✅ FIX: Save directly to Supabase so phone sees it instantly
+    (async () => {
+      try {
+        const { supabase } = await import('../services/db');
+        if (!supabase || !aid || aid === 'default') return;
+        // Don't save if aid is an email
+        if (aid.includes('@')) return;
+        const merged = { ...(agentPaymentConfigs[aid] || INITIAL_AGENT_PAYMENT_CONFIG), ...config };
+        const { error } = await supabase.from('payment_configs').upsert({
+          entity_type: `agent_${aid}`,
+          config: {
+            momoNumber: merged.momoNumber || '',
+            momoName: (merged as any).momoName || merged.momoAccountName || '',
+            momoAccountName: merged.momoAccountName || (merged as any).momoName || '',
+            subaccountCode: (merged as any).subaccountCode || (merged as any).paystackSubaccountCode || '',
+            payoutMethod: merged.payoutMethod || 'momo',
+            momoProvider: merged.momoProvider || 'MTN',
+            bankName: merged.bankName || '',
+            bankAccountNumber: merged.bankAccountNumber || '',
+            bankAccountName: merged.bankAccountName || '',
+            agentCommissionPercent: merged.agentCommissionPercent ?? 1.5,
+            dailyCutoffTime: merged.dailyCutoffTime || '',
+            provider: 'paystack',
+            isConnected: true,
+          }
+        }, { onConflict: 'entity_type' });
+        if (error) console.error('Save agent payout to Supabase failed:', error.message);
+        else console.log('✅ Agent payout saved to Supabase:', aid);
+      } catch (e) { console.warn(e); }
+    })();
   };
 
-
-const updateAgentPaymentConfigForAgent = (agentId: string, config: Partial<AgentPaymentConfig>) => {
-  setAgentPaymentConfigs(prev => {
-    const current = prev[agentId] || INITIAL_AGENT_PAYMENT_CONFIG;
-    const updated = {...prev, [agentId]: {...current, ...config } };
-    try { localStorage.setItem('susu_agent_payment_configs', JSON.stringify(updated)); } catch {}
-    return updated;
-  });
-};
+  const updateAgentPaymentConfigForAgent = (agentId: string, config: Partial<AgentPaymentConfig>) => {
+    setAgentPaymentConfigs(prev => {
+      const current = prev[agentId] || INITIAL_AGENT_PAYMENT_CONFIG;
+      const updated = { ...prev, [agentId]: { ...current, ...config } };
+      try { localStorage.setItem('susu_agent_payment_configs', JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+    // ✅ Same direct cloud save for specific agent
+    (async () => {
+      try {
+        const { supabase } = await import('../services/db');
+        if (!supabase || !agentId || agentId.includes('@')) return;
+        const merged = { ...(agentPaymentConfigs[agentId] || INITIAL_AGENT_PAYMENT_CONFIG), ...config };
+        await supabase.from('payment_configs').upsert({
+          entity_type: `agent_${agentId}`,
+          config: {
+            momoNumber: merged.momoNumber || '',
+            momoName: (merged as any).momoName || merged.momoAccountName || '',
+            momoAccountName: merged.momoAccountName || (merged as any).momoName || '',
+            subaccountCode: (merged as any).subaccountCode || (merged as any).paystackSubaccountCode || '',
+            payoutMethod: merged.payoutMethod || 'momo',
+            momoProvider: merged.momoProvider || 'MTN',
+            bankName: merged.bankName || '',
+            bankAccountNumber: merged.bankAccountNumber || '',
+            bankAccountName: merged.bankAccountName || '',
+            agentCommissionPercent: merged.agentCommissionPercent ?? 1.5,
+            dailyCutoffTime: merged.dailyCutoffTime || '',
+            provider: 'paystack',
+            isConnected: true,
+          }
+        }, { onConflict: 'entity_type' });
+      } catch (e) { console.warn(e); }
+    })();
+  };
 
 
   const [platformPaymentConfig, setPlatformPaymentConfig] = useState<SuperAdminPaymentConfig>(() => {
@@ -799,7 +855,7 @@ const stateToSave = {
       DatabaseService.persistState(stateToSave as any).catch(err => console.warn('DB sync:', err));
     }, 1000);
     return () => clearTimeout(timeout);
-  }, [isDbLoaded, groups, members, payments, agents, platformPaymentConfig]);
+   }, [isDbLoaded, groups, members, payments, agents, platformPaymentConfig, agentPaymentConfigs, agentPaymentConfig]);
 
   const getActiveUser = (): User => {
     if (currentUserRole === 'super_admin') {

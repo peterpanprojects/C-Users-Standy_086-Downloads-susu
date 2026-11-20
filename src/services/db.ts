@@ -4,10 +4,10 @@ import { AgentAccount, AgentPaymentConfig, AppNotification, DailyPayment, FeedPo
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
-export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey &&!supabaseUrl.includes('your-project'));
+export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey && !supabaseUrl.includes('your-project'));
 let supabaseInstance: SupabaseClient | null = null;
 export const supabase: SupabaseClient | null = isSupabaseConfigured
-? (supabaseInstance??= createClient(supabaseUrl, supabaseAnonKey, { auth: { persistSession: true, storageKey: 'susu-vault-auth' } }))
+  ? (supabaseInstance ??= createClient(supabaseUrl, supabaseAnonKey, { auth: { persistSession: true, storageKey: 'susu-vault-auth' } }))
   : null;
 
 const LOCAL_STORAGE_DB_KEY = 'susu_platform_live_db_v2';
@@ -42,29 +42,34 @@ export const DatabaseService = {
         }
 
         const groupsRes = currentAgentId
-         ? await supabase.from('susu_groups').select('*').eq('agent_id', currentAgentId).order('created_at', { ascending: false })
+          ? await supabase.from('susu_groups').select('*').eq('agent_id', currentAgentId).order('created_at', { ascending: false })
           : await supabase.from('susu_groups').select('*').order('created_at', { ascending: false });
         const myGroupIds = (groupsRes.data || []).map((g: any) => g.id);
 
         const membersRes = myGroupIds.length > 0
-         ? await supabase.from('group_members').select('*').in('group_id', myGroupIds).order('position_in_rotation', { ascending: true })
+          ? await supabase.from('group_members').select('*').in('group_id', myGroupIds).order('position_in_rotation', { ascending: true })
           : { data: [] };
 
         const [paymentsRes, postsRes, agentRes, paymentConfigsRes, liveConfigRes, notifsRes] = await Promise.all([
-          myGroupIds.length > 0? supabase.from('daily_payments').select('*').in('group_id', myGroupIds) : Promise.resolve({ data: [] } as any),
+          myGroupIds.length > 0 ? supabase.from('daily_payments').select('*').in('group_id', myGroupIds) : Promise.resolve({ data: [] } as any),
           supabase.from('feed_posts').select('*').order('created_at', { ascending: false }),
           supabase.from('agent_accounts').select('id, first_name, surname, email, phone, avatar_url, is_otp_verified, is_kyc_submitted, is_activated, activation_fee_amount, activation_paid_at, activation_tx_ref, admin_approval_status, admin_approved_at, admin_review_notes, license_number, status, created_at').order('created_at', { ascending: false }),
-          supabase.from('payment_configs').select('*'), // ✅ FETCH ALL CONFIGS
+          supabase.from('payment_configs').select('*'),
           supabase.from('live_support_configs').select('*').limit(1).maybeSingle(),
           supabase.from('notifications').select('*').order('created_at', { ascending: false })
         ]);
+
+        // Resolve email -> real agent id using agent_accounts (fixes phone vs laptop id mismatch)
+        if (currentAgentId && currentAgentId.includes('@')) {
+          const found = (agentRes.data || []).find((a: any) => a.email?.toLowerCase() === currentAgentId!.toLowerCase());
+          if (found) currentAgentId = found.id;
+        }
 
         const groupsList: SusuGroup[] = (groupsRes.data || []).map((g: any) => ({
           id: g.id, name: g.name, agentId: g.agent_id, fixedDailyAmount: Number(g.fixed_daily_amount),
           currency: g.currency, cycleStartDate: g.cycle_start_date, status: g.status, createdAt: g.created_at, paystackPublicKey: g.paystack_public_key || ''
         }));
 
-        // ✅ FIX: Parse platformPaymentConfig from payment_configs table
         let platformPaymentConfig: SuperAdminPaymentConfig | null = null;
         const superAdminRow = (paymentConfigsRes.data || []).find((r: any) => r.entity_type === 'super_admin');
         if (superAdminRow?.config) {
@@ -76,8 +81,8 @@ export const DatabaseService = {
             storeCheckoutType: cfg.storeCheckoutType || 'Direct online payments',
             publicKey: cfg.publicKey || cfg.masterPublicKey || '',
             secretKey: cfg.secretKey || cfg.masterSecretKey || '',
-            enableDirectStoreProcessing: cfg.enableDirectStoreProcessing?? true,
-            minResellerTopUp: cfg.minResellerTopUp?? 10,
+            enableDirectStoreProcessing: cfg.enableDirectStoreProcessing ?? true,
+            minResellerTopUp: cfg.minResellerTopUp ?? 10,
             activeGateway: cfg.provider || 'paystack',
             environment: cfg.environment || (cfg.paymentMode as any) || 'live',
             masterPublicKey: cfg.masterPublicKey || cfg.publicKey || '',
@@ -100,10 +105,9 @@ export const DatabaseService = {
             enforceHmacSignatures: true,
             webhookIpWhitelist: ''
           } as SuperAdminPaymentConfig;
-          console.log('✅ Loaded platformPaymentConfig from Supabase super_admin:', platformPaymentConfig.masterPublicKey?.substring(0,20));
         }
 
-        // ✅ CLOUD ONLY: Parse agent payout configs from Supabase
+        // ✅ FIXED: Parse ALL agent payout fields
         let agentPaymentConfigs: Record<string, AgentPaymentConfig> = {};
         let agentPaymentConfig: AgentPaymentConfig | null = null;
         (paymentConfigsRes.data || []).forEach((r: any) => {
@@ -112,45 +116,56 @@ export const DatabaseService = {
             const cfg = r.config as any;
             const parsed = {
               momoNumber: cfg.momoNumber || cfg.momo_number || '',
-              momoName: cfg.momoName || cfg.momo_name || '',
+              momoName: cfg.momoName || cfg.momoAccountName || cfg.momo_name || '',
+              momoAccountName: cfg.momoAccountName || cfg.momoName || cfg.momo_name || '',
               subaccountCode: cfg.subaccountCode || cfg.subaccount_code || cfg.subaccount || '',
               isConnected: Boolean(cfg.subaccountCode || cfg.subaccount_code || cfg.subaccount || cfg.momoNumber),
               provider: cfg.provider || 'paystack',
-                        } as unknown as AgentPaymentConfig;
+              payoutMethod: cfg.payoutMethod || 'momo',
+              momoProvider: cfg.momoProvider || 'MTN',
+              bankName: cfg.bankName || '',
+              bankAccountNumber: cfg.bankAccountNumber || '',
+              bankAccountName: cfg.bankAccountName || '',
+              agentCommissionPercent: cfg.agentCommissionPercent ?? 1.5,
+              dailyCutoffTime: cfg.dailyCutoffTime || '',
+            } as unknown as AgentPaymentConfig;
             agentPaymentConfigs[agentIdFromRow] = parsed;
             if (agentIdFromRow === currentAgentId) agentPaymentConfig = parsed;
           }
         });
 
+        // Fallback: if currentAgentId didn't match but there is only 1 agent config, use it
+        if (!agentPaymentConfig) {
+          const vals = Object.values(agentPaymentConfigs);
+          if (vals.length === 1) agentPaymentConfig = vals[0] as AgentPaymentConfig;
+        }
+
         return {
           group: groupsList.find(g => g.agentId === currentAgentId) || groupsList[0] || null,
           groups: groupsList,
-          members: (membersRes.data || []).map((m: any) => ({ id: m.id, groupId: m.group_id, userId: m.user_id, name: m.name, email: m.email, phone: m.phone, avatarUrl: m.avatar_url || '', inviteStatus: m.invite_status, inviteToken: m.invite_token, uniqueCode: m.unique_code, joinedAt: m.joined_at, positionInRotation: m.position_in_rotation, reliabilityScore: m.reliability_score, slotLocked: m.slot_locked?? (m.invite_status === 'active') })),
+          members: (membersRes.data || []).map((m: any) => ({ id: m.id, groupId: m.group_id, userId: m.user_id, name: m.name, email: m.email, phone: m.phone, avatarUrl: m.avatar_url || '', inviteStatus: m.invite_status, inviteToken: m.invite_token, uniqueCode: m.unique_code, joinedAt: m.joined_at, positionInRotation: m.position_in_rotation, reliabilityScore: m.reliability_score, slotLocked: m.slot_locked ?? (m.invite_status === 'active') })),
           payments: (paymentsRes.data || []).map((p: any) => ({ id: p.id, groupId: p.group_id, memberId: p.member_id, paymentDate: p.payment_date, amount: Number(p.amount), status: p.status, paymentMethod: p.payment_method, paystackReference: p.paystack_reference, paidAt: p.paid_at })),
           posts: (postsRes.data as any) || [],
           agents: (agentRes.data || []).map((agt: any) => ({ id: agt.id, firstName: agt.first_name, surname: agt.surname, email: agt.email, phone: agt.phone, avatarUrl: agt.avatar_url || '', isOtpVerified: agt.is_otp_verified, isKycSubmitted: agt.is_kyc_submitted, isActivated: agt.is_activated, activationFeeAmount: Number(agt.activation_fee_amount || 0), activationPaidAt: agt.activation_paid_at, activationTxRef: agt.activation_tx_ref, adminApprovalStatus: agt.admin_approval_status, adminApprovedAt: agt.admin_approved_at, adminReviewNotes: agt.admin_review_notes, licenseNumber: agt.license_number, kycData: agt.kyc_data })),
           agentAccount: null,
-                    agentPaymentConfig: agentPaymentConfig,
+          agentPaymentConfig: agentPaymentConfig,
           agentPaymentConfigs: agentPaymentConfigs,
-          platformPaymentConfig, // ✅ NOW IT'S LOADED!
+          platformPaymentConfig,
           liveSupportConfig: liveConfigRes.data || null,
           notifications: (notifsRes.data as any) || [],
         } as any;
       } catch (err) { console.error('Supabase load failed, using local:', err); }
     }
     const saved = localStorage.getItem(LOCAL_STORAGE_DB_KEY);
-    if (saved) { try { const parsed = JSON.parse(saved); return {...parsed, group: parsed.group || parsed.groups?.[0] || null, groups: parsed.groups || (parsed.group? [parsed.group] : []), agents: parsed.agents || (parsed.agentAccount? [parsed.agentAccount] : []) }; } catch {} }
+    if (saved) { try { const parsed = JSON.parse(saved); return { ...parsed, group: parsed.group || parsed.groups?.[0] || null, groups: parsed.groups || (parsed.group ? [parsed.group] : []), agents: parsed.agents || (parsed.agentAccount ? [parsed.agentAccount] : []) }; } catch {} }
     return { group: null, groups: [], members: [], payments: [], posts: [], agentAccount: null, agents: [], agentPaymentConfig: null, platformPaymentConfig: null, liveSupportConfig: null, notifications: [] };
   },
 
-async getAgentKyc(agentId: string) {
-  if (!supabase) return null;
-  const { data } = await supabase.from('agent_accounts').select('kyc_data').eq('id', agentId).maybeSingle();
-  return (data as any)?.kyc_data || null;
-  
-},
-
-
+  async getAgentKyc(agentId: string) {
+    if (!supabase) return null;
+    const { data } = await supabase.from('agent_accounts').select('kyc_data').eq('id', agentId).maybeSingle();
+    return (data as any)?.kyc_data || null;
+  },
 
   async persistState(state: DatabaseState): Promise<void> {
     const integrity = validateDatabaseIntegrity(state);
@@ -163,7 +178,6 @@ async getAgentKyc(agentId: string) {
       if (state.members?.length) await supabase.from('group_members').upsert(state.members.map(m => ({ id: m.id, group_id: m.groupId, user_id: m.userId, name: m.name, email: m.email, phone: m.phone, invite_status: m.inviteStatus, invite_token: m.inviteToken, unique_code: m.uniqueCode, joined_at: m.joinedAt, position_in_rotation: m.positionInRotation, reliability_score: (m as any).reliabilityScore || 100 })), { onConflict: 'id' });
       if (state.payments?.length) await supabase.from('daily_payments').upsert(state.payments.map(p => ({ id: p.id, group_id: p.groupId, member_id: p.memberId, payment_date: p.paymentDate, amount: p.amount, status: p.status, payment_method: p.paymentMethod, paystack_reference: p.paystackReference, paid_at: p.paidAt })), { onConflict: 'id' });
 
-      // ✅ FIX: Also persist platformPaymentConfig to payment_configs
       if (state.platformPaymentConfig) {
         const cfg = state.platformPaymentConfig as any;
         await supabase.from('payment_configs').upsert({
@@ -183,26 +197,54 @@ async getAgentKyc(agentId: string) {
           }
         }, { onConflict: 'entity_type' });
       }
-            // ✅ CLOUD ONLY: Save agent payout so phone + laptop both see it
+
+      // ✅ FIXED: Save ALL agent payout fields, no entity_id column
+      const buildAgentConfig = (cfg: any) => ({
+        momoNumber: cfg.momoNumber || '',
+        momoName: cfg.momoName || cfg.momoAccountName || '',
+        momoAccountName: cfg.momoAccountName || cfg.momoName || '',
+        subaccountCode: cfg.subaccountCode || cfg.subaccount || '',
+        payoutMethod: cfg.payoutMethod || 'momo',
+        momoProvider: cfg.momoProvider || 'MTN',
+        bankName: cfg.bankName || '',
+        bankAccountNumber: cfg.bankAccountNumber || '',
+        bankAccountName: cfg.bankAccountName || '',
+        agentCommissionPercent: cfg.agentCommissionPercent ?? 1.5,
+        dailyCutoffTime: cfg.dailyCutoffTime || '',
+        provider: 'paystack',
+        isConnected: true,
+      });
+
+      // 1) Save the map if it exists (multi-agent safe)
+      if (state.agentPaymentConfigs) {
+        for (const [agentId, cfg] of Object.entries(state.agentPaymentConfigs)) {
+          if (!agentId) continue;
+          const { error } = await supabase.from('payment_configs').upsert({
+            entity_type: `agent_${agentId}`,
+            config: buildAgentConfig(cfg as any)
+          }, { onConflict: 'entity_type' });
+          if (error) console.warn('Save agentPaymentConfigs failed:', error.message);
+        }
+      }
+
+      // 2) Save single current agent config (fallback)
       const agentIdToSave = state.agentAccount?.id || (state.agents?.[0] as any)?.id || (localStorage.getItem('susu_current_agent_id') || '');
-      if (state.agentPaymentConfig && agentIdToSave) {
-        const cfg: any = state.agentPaymentConfig;
-        await supabase.from('payment_configs').upsert({
-          entity_type: `agent_${agentIdToSave}`,
-          entity_id: agentIdToSave,
-          config: {
-            momoNumber: cfg.momoNumber || '',
-            momoName: cfg.momoName || '',
-            subaccountCode: cfg.subaccountCode || cfg.subaccount || '',
-            provider: 'paystack',
-            isConnected: true,
-          }
+      // Don't save if id is an email — resolve it via agents list
+      let resolvedId = agentIdToSave;
+      if (resolvedId && resolvedId.includes('@')) {
+        const found = (state.agents || []).find((a: any) => a.email?.toLowerCase() === resolvedId.toLowerCase());
+        if (found) resolvedId = found.id;
+      }
+      if (state.agentPaymentConfig && resolvedId && !resolvedId.includes('@')) {
+        const { error } = await supabase.from('payment_configs').upsert({
+          entity_type: `agent_${resolvedId}`,
+          config: buildAgentConfig(state.agentPaymentConfig as any)
         }, { onConflict: 'entity_type' });
+        if (error) console.warn('Save agentPaymentConfig failed:', error.message);
       }
     } catch (err) { console.warn('Supabase sync warning:', err); }
-    
   },
-  
+
   async createGroup(newGroup: SusuGroup): Promise<void> {
     if (!supabase) return;
     try {
