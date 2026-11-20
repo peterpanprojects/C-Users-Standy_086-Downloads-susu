@@ -246,18 +246,45 @@ export const DatabaseService = {
   },
 
   async createGroup(newGroup: SusuGroup): Promise<void> {
-    if (!supabase) return;
-    try {
-      const currentAgentId = newGroup.agentId || localStorage.getItem('susu_current_agent_id') || localStorage.getItem('susu_active_agent_id') || '';
-      const { error } = await supabase.from('susu_groups').insert({
-        id: newGroup.id, name: newGroup.name, agent_id: currentAgentId,
-        fixed_daily_amount: newGroup.fixedDailyAmount, currency: newGroup.currency,
-        cycle_start_date: newGroup.cycleStartDate, status: newGroup.status,
-        paystack_public_key: (newGroup as any).paystackPublicKey || ''
-      });
-      if (error) console.error('Supabase createGroup error:', error);
-    } catch (err) { console.error('Failed to insert group:', err); }
-  },
+  if (!supabase) throw new Error('Supabase not configured');
+  
+  let currentAgentId = newGroup.agentId || localStorage.getItem('susu_current_agent_id') || '';
+  if (currentAgentId.includes('@')) throw new Error('Agent ID is email, not UUID. Login again.');
+
+  const { error } = await supabase.from('susu_groups').insert({
+    id: newGroup.id, 
+    name: newGroup.name, 
+    agent_id: currentAgentId || null,
+    fixed_daily_amount: newGroup.fixedDailyAmount, 
+    currency: newGroup.currency,
+    cycle_start_date: newGroup.cycleStartDate, 
+    status: newGroup.status,
+    paystack_public_key: (newGroup as any).paystackPublicKey || ''
+  });
+  if (error) throw error;
+},
+
+async addMember(member: GroupMember): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase.from('group_members').insert({
+    id: member.id,
+    group_id: member.groupId,
+    user_id: member.userId || member.id,
+    name: member.name,
+    email: member.email || '',
+    phone: member.phone || '',
+    invite_status: member.inviteStatus || 'active',
+    invite_token: member.inviteToken || null,
+    unique_code: member.uniqueCode || null,
+    joined_at: member.joinedAt || new Date().toISOString(),
+    position_in_rotation: member.positionInRotation ?? 0,
+    reliability_score: (member as any).reliabilityScore ?? 100,
+  });
+  if (error) {
+    console.error('addMember failed:', error);
+    throw error;
+  }
+},
   async deleteAgent(agentId: string): Promise<void> { if (supabase) await supabase.from('agent_accounts').delete().eq('id', agentId); },
   async deleteGroup(groupId: string): Promise<void> { if (supabase) { await supabase.from('susu_groups').delete().eq('id', groupId); await supabase.from('group_members').delete().eq('group_id', groupId); } },
   async purgeDatabase(): Promise<void> {

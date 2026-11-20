@@ -55,8 +55,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
   // FAQ items data
   const faqs = [
     {
-      q: 'What is a Susu / ROSCA scheme?',
-      a: 'A Susu (Rotating Savings and Credit Association) is a community savings tradition. A fixed group of members contributes a set amount daily (Monday through Sunday). Each Sunday night, one scheduled member receives the entire lump-sum pooled pot until everyone in the group has had their turn.',
+      q: 'What is ROSCA scheme?',
+      a: 'ROSCA (Rotating Savings and Credit Association) is a community savings tradition. A fixed group of members contributes a set amount daily (Monday through Sunday). Each Sunday night, one scheduled member receives the entire lump-sum pooled pot until everyone in the group has had their turn.',
     },
     {
       q: 'How are daily contributions collected?',
@@ -90,16 +90,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
       <section className="hero-section">
         <div className="hero-badge">
           <Sparkles size={14} color="#E5A93C" />
-          <span>Next-Generation Susu & ROSCA Platform</span>
+          <span>Next-Generation ROSCA Platform</span>
         </div>
 
         <h1 className="hero-title">
           Smart, Transparent & Automated <br />
-          <span className="text-gold">Susu Savings</span> Management
+          <span className="text-gold">ROSCA Management</span>
         </h1>
 
         <p className="hero-subtitle">
-          Modernize your rotating savings circle. Group members contribute a fixed daily amount from Monday to Sunday. Each week, one member receives the complete pooled payout with zero math errors and complete transparency.
+          Smarter group savings, simplified. Pool a fixed daily contribution every week from Monday to Sunday. Each week, one member receives the complete pooled payout. Enjoy effortless tracking, complete transparency, 100% accuracy and seamless weekly payouts for your savings group.
         </p>
 
         <div className="hero-ctas">
@@ -143,10 +143,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
             <span className="stat-value">Paystack</span>
             <span className="stat-label">Secured Payments</span>
           </div>
-          <div className="stat-card">
+          {/* <div className="stat-card">
             <span className="stat-value">0 Errors</span>
             <span className="stat-label">Automated Ledger</span>
-          </div>
+          </div> */}
         </div>
       </section>
 

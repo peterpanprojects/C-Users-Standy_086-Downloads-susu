@@ -1192,9 +1192,8 @@ const inviteMember = async (name: string, email: string, phone: string) => {
   const newMemberId = `mem-${Date.now()}`;
   const groupMembers = members.filter(m => m.groupId === group.id);
   const position = groupMembers.length + 1;
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  // 1. Local state for instant UI
   const newMember: GroupMember = {
     id: newMemberId,
     groupId: group.id,
@@ -1210,35 +1209,46 @@ const inviteMember = async (name: string, email: string, phone: string) => {
   };
   setMembers(prev => [...prev, newMember]);
 
-  try {
-    // 2. Save to Supabase - group_members
-    await supabase.from('group_members').upsert({
-      id: newMemberId,
-      group_id: group.id,
-      name, email, phone,
-      invite_status: 'pending',
-      invite_token: token,
-      unique_code: uniqueCode,
-      position_in_rotation: position
-    }, { onConflict: 'id' });
+  // 1. Save member - CHECK ERROR THIS TIME
+  const { error: memberError } = await supabase.from('group_members').upsert({
+    id: newMemberId,
+    group_id: group.id,
+    user_id: `usr-${newMemberId}`,
+    name, email, phone,
+    invite_status: 'pending',
+    invite_token: token,
+    unique_code: uniqueCode,
+    joined_at: new Date().toISOString(),
+    position_in_rotation: position,
+    reliability_score: 100
+  }, { onConflict: 'id' });
 
-    // 3. CRITICAL - Save to group_invites - THIS WAS MISSING BEFORE
-    await supabase.from('group_invites').insert({
-      id: token,
-      token: token,
-      group_id: group.id,
-      member_id: newMemberId,
-      member_name: name,
-      member_phone: phone,
-      invited_email: email?.toLowerCase() || phone,
-      member_email: email,
-      position: position,
-      status: 'pending',
-      created_at: new Date().toISOString(),
-      expires_at: expiresAt
-    });
-  } catch (e) {
-    console.warn('Supabase invite save failed', e);
+  if (memberError) {
+    console.error('MEMBER SAVE FAILED:', memberError);
+    alert(`Member NOT saved to Supabase: ${memberError.message}`);
+    throw memberError;
+  }
+
+  // 2. Save invite - CHECK ERROR
+  const { error: inviteError } = await supabase.from('group_invites').insert({
+    id: token,
+    token: token,
+    group_id: group.id,
+    member_id: newMemberId,
+    member_name: name,
+    member_phone: phone,
+    invited_email: email?.toLowerCase() || phone,
+    member_email: email,
+    position: position,
+    status: 'pending',
+    created_at: new Date().toISOString(),
+    expires_at: expiresAt
+  });
+
+  if (inviteError) {
+    console.error('INVITE SAVE FAILED:', inviteError);
+    // Don't throw here - member already saved, just warn
+    alert(`Member saved, but invite link failed: ${inviteError.message}`);
   }
 
   return { token, inviteUrl: `${window.location.origin}/invite/${token}`, uniqueCode };
