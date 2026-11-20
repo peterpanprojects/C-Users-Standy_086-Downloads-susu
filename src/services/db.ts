@@ -7,10 +7,8 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey && !supabaseUrl.includes('your-project'));
 let supabaseInstance: SupabaseClient | null = null;
 export const supabase: SupabaseClient | null = isSupabaseConfigured
-  ? (supabaseInstance ??= createClient(supabaseUrl, supabaseAnonKey, { auth: { persistSession: true, storageKey: 'susu-vault-auth' } }))
+  ? (supabaseInstance ??= createClient(supabaseUrl, supabaseAnonKey, { auth: { persistSession: false, autoRefreshToken: false } }))
   : null;
-
-const LOCAL_STORAGE_DB_KEY = 'susu_platform_live_db_v2';
 
 export interface DatabaseState {
   group: SusuGroup | null; groups?: SusuGroup[]; members: GroupMember[]; payments: DailyPayment[];
@@ -28,42 +26,17 @@ export const DatabaseService = {
   async loadState(): Promise<DatabaseState> {
     if (supabase) {
       try {
-        let currentAgentId = localStorage.getItem('susu_current_agent_id') || localStorage.getItem('susu_active_agent_id');
-        if (currentAgentId && currentAgentId.includes('@')) {
-          try {
-            const regStr = localStorage.getItem('susu_agent_registry_v2');
-            if (regStr) {
-              const registry = JSON.parse(regStr);
-              if (registry[currentAgentId.toLowerCase()]) {
-                currentAgentId = registry[currentAgentId.toLowerCase()].id;
-              }
-            }
-          } catch {}
-        }
-
-        const groupsRes = currentAgentId
-          ? await supabase.from('susu_groups').select('*').eq('agent_id', currentAgentId).order('created_at', { ascending: false })
-          : await supabase.from('susu_groups').select('*').order('created_at', { ascending: false });
-        const myGroupIds = (groupsRes.data || []).map((g: any) => g.id);
-
-        const membersRes = myGroupIds.length > 0
-          ? await supabase.from('group_members').select('*').in('group_id', myGroupIds).order('position_in_rotation', { ascending: true })
-          : { data: [] };
+        const groupsRes = await supabase.from('susu_groups').select('*').order('created_at', { ascending: false });
+        const membersRes = await supabase.from('group_members').select('*').order('position_in_rotation', { ascending: true });
 
         const [paymentsRes, postsRes, agentRes, paymentConfigsRes, liveConfigRes, notifsRes] = await Promise.all([
-          myGroupIds.length > 0 ? supabase.from('daily_payments').select('*').in('group_id', myGroupIds) : Promise.resolve({ data: [] } as any),
+          supabase.from('daily_payments').select('*'),
           supabase.from('feed_posts').select('*').order('created_at', { ascending: false }),
           supabase.from('agent_accounts').select('id, first_name, surname, email, phone, avatar_url, is_otp_verified, is_kyc_submitted, is_activated, activation_fee_amount, activation_paid_at, activation_tx_ref, admin_approval_status, admin_approved_at, admin_review_notes, license_number, status, created_at').order('created_at', { ascending: false }),
           supabase.from('payment_configs').select('*'),
           supabase.from('live_support_configs').select('*').limit(1).maybeSingle(),
           supabase.from('notifications').select('*').order('created_at', { ascending: false })
         ]);
-
-        // Resolve email -> real agent id using agent_accounts (fixes phone vs laptop id mismatch)
-        if (currentAgentId && currentAgentId.includes('@')) {
-          const found = (agentRes.data || []).find((a: any) => a.email?.toLowerCase() === currentAgentId!.toLowerCase());
-          if (found) currentAgentId = found.id;
-        }
 
         const groupsList: SusuGroup[] = (groupsRes.data || []).map((g: any) => ({
           id: g.id, name: g.name, agentId: g.agent_id, fixedDailyAmount: Number(g.fixed_daily_amount),
@@ -107,7 +80,6 @@ export const DatabaseService = {
           } as SuperAdminPaymentConfig;
         }
 
-        // ✅ FIXED: Parse ALL agent payout fields
         let agentPaymentConfigs: Record<string, AgentPaymentConfig> = {};
         let agentPaymentConfig: AgentPaymentConfig | null = null;
         (paymentConfigsRes.data || []).forEach((r: any) => {
@@ -130,18 +102,16 @@ export const DatabaseService = {
               dailyCutoffTime: cfg.dailyCutoffTime || '',
             } as unknown as AgentPaymentConfig;
             agentPaymentConfigs[agentIdFromRow] = parsed;
-            if (agentIdFromRow === currentAgentId) agentPaymentConfig = parsed;
           }
         });
 
-        // Fallback: if currentAgentId didn't match but there is only 1 agent config, use it
         if (!agentPaymentConfig) {
           const vals = Object.values(agentPaymentConfigs);
           if (vals.length === 1) agentPaymentConfig = vals[0] as AgentPaymentConfig;
         }
 
         return {
-          group: groupsList.find(g => g.agentId === currentAgentId) || groupsList[0] || null,
+          group: groupsList[0] || null,
           groups: groupsList,
           members: (membersRes.data || []).map((m: any) => ({ id: m.id, groupId: m.group_id, userId: m.user_id, name: m.name, email: m.email, phone: m.phone, avatarUrl: m.avatar_url || '', inviteStatus: m.invite_status, inviteToken: m.invite_token, uniqueCode: m.unique_code, joinedAt: m.joined_at, positionInRotation: m.position_in_rotation, reliabilityScore: m.reliability_score, slotLocked: m.slot_locked ?? (m.invite_status === 'active') })),
           payments: (paymentsRes.data || []).map((p: any) => ({ id: p.id, groupId: p.group_id, memberId: p.member_id, paymentDate: p.payment_date, amount: Number(p.amount), status: p.status, paymentMethod: p.payment_method, paystackReference: p.paystack_reference, paidAt: p.paid_at })),
@@ -154,10 +124,8 @@ export const DatabaseService = {
           liveSupportConfig: liveConfigRes.data || null,
           notifications: (notifsRes.data as any) || [],
         } as any;
-      } catch (err) { console.error('Supabase load failed, using local:', err); }
+      } catch (err) { console.error('Supabase load failed:', err); }
     }
-    const saved = localStorage.getItem(LOCAL_STORAGE_DB_KEY);
-    if (saved) { try { const parsed = JSON.parse(saved); return { ...parsed, group: parsed.group || parsed.groups?.[0] || null, groups: parsed.groups || (parsed.group ? [parsed.group] : []), agents: parsed.agents || (parsed.agentAccount ? [parsed.agentAccount] : []) }; } catch {} }
     return { group: null, groups: [], members: [], payments: [], posts: [], agentAccount: null, agents: [], agentPaymentConfig: null, platformPaymentConfig: null, liveSupportConfig: null, notifications: [] };
   },
 
@@ -170,7 +138,6 @@ export const DatabaseService = {
   async persistState(state: DatabaseState): Promise<void> {
     const integrity = validateDatabaseIntegrity(state);
     if (!integrity.valid) throw new Error(integrity.error);
-    try { localStorage.setItem(LOCAL_STORAGE_DB_KEY, JSON.stringify(state)); } catch {}
     if (!supabase) return;
     try {
       if (state.groups?.length) await supabase.from('susu_groups').upsert(state.groups.map(g => ({ id: g.id, name: g.name, agent_id: g.agentId, fixed_daily_amount: g.fixedDailyAmount, currency: g.currency, cycle_start_date: g.cycleStartDate, status: g.status, paystack_public_key: (g as any).paystackPublicKey || '' })), { onConflict: 'id' });
@@ -198,7 +165,6 @@ export const DatabaseService = {
         }, { onConflict: 'entity_type' });
       }
 
-      // ✅ FIXED: Save ALL agent payout fields, no entity_id column
       const buildAgentConfig = (cfg: any) => ({
         momoNumber: cfg.momoNumber || '',
         momoName: cfg.momoName || cfg.momoAccountName || '',
@@ -215,7 +181,6 @@ export const DatabaseService = {
         isConnected: true,
       });
 
-      // 1) Save the map if it exists (multi-agent safe)
       if (state.agentPaymentConfigs) {
         for (const [agentId, cfg] of Object.entries(state.agentPaymentConfigs)) {
           if (!agentId) continue;
@@ -227,9 +192,7 @@ export const DatabaseService = {
         }
       }
 
-      // 2) Save single current agent config (fallback)
-      const agentIdToSave = state.agentAccount?.id || (state.agents?.[0] as any)?.id || (localStorage.getItem('susu_current_agent_id') || '');
-      // Don't save if id is an email — resolve it via agents list
+      const agentIdToSave = state.agentAccount?.id || (state.agents?.[0] as any)?.id || '';
       let resolvedId = agentIdToSave;
       if (resolvedId && resolvedId.includes('@')) {
         const found = (state.agents || []).find((a: any) => a.email?.toLowerCase() === resolvedId.toLowerCase());
@@ -246,49 +209,46 @@ export const DatabaseService = {
   },
 
   async createGroup(newGroup: SusuGroup): Promise<void> {
-  if (!supabase) throw new Error('Supabase not configured');
-  
-  let currentAgentId = newGroup.agentId || localStorage.getItem('susu_current_agent_id') || '';
-  if (currentAgentId.includes('@')) throw new Error('Agent ID is email, not UUID. Login again.');
+    if (!supabase) throw new Error('Supabase not configured');
+    const currentAgentId = newGroup.agentId || '';
+    if (currentAgentId.includes('@')) throw new Error('Agent ID is email, not UUID. Login again.');
+    const { error } = await supabase.from('susu_groups').insert({
+      id: newGroup.id,
+      name: newGroup.name,
+      agent_id: currentAgentId || null,
+      fixed_daily_amount: newGroup.fixedDailyAmount,
+      currency: newGroup.currency,
+      cycle_start_date: newGroup.cycleStartDate,
+      status: newGroup.status,
+      paystack_public_key: (newGroup as any).paystackPublicKey || ''
+    });
+    if (error) throw error;
+  },
 
-  const { error } = await supabase.from('susu_groups').insert({
-    id: newGroup.id, 
-    name: newGroup.name, 
-    agent_id: currentAgentId || null,
-    fixed_daily_amount: newGroup.fixedDailyAmount, 
-    currency: newGroup.currency,
-    cycle_start_date: newGroup.cycleStartDate, 
-    status: newGroup.status,
-    paystack_public_key: (newGroup as any).paystackPublicKey || ''
-  });
-  if (error) throw error;
-},
-
-async addMember(member: GroupMember): Promise<void> {
-  if (!supabase) return;
-  const { error } = await supabase.from('group_members').insert({
-    id: member.id,
-    group_id: member.groupId,
-    user_id: member.userId || member.id,
-    name: member.name,
-    email: member.email || '',
-    phone: member.phone || '',
-    invite_status: member.inviteStatus || 'active',
-    invite_token: member.inviteToken || null,
-    unique_code: member.uniqueCode || null,
-    joined_at: member.joinedAt || new Date().toISOString(),
-    position_in_rotation: member.positionInRotation ?? 0,
-    reliability_score: (member as any).reliabilityScore ?? 100,
-  });
-  if (error) {
-    console.error('addMember failed:', error);
-    throw error;
-  }
-},
+  async addMember(member: GroupMember): Promise<void> {
+    if (!supabase) return;
+    const { error } = await supabase.from('group_members').insert({
+      id: member.id,
+      group_id: member.groupId,
+      user_id: member.userId || member.id,
+      name: member.name,
+      email: member.email || '',
+      phone: member.phone || '',
+      invite_status: member.inviteStatus || 'active',
+      invite_token: member.inviteToken || null,
+      unique_code: member.uniqueCode || null,
+      joined_at: member.joinedAt || new Date().toISOString(),
+      position_in_rotation: member.positionInRotation ?? 0,
+      reliability_score: (member as any).reliabilityScore ?? 100,
+    });
+    if (error) {
+      console.error('addMember failed:', error);
+      throw error;
+    }
+  },
   async deleteAgent(agentId: string): Promise<void> { if (supabase) await supabase.from('agent_accounts').delete().eq('id', agentId); },
   async deleteGroup(groupId: string): Promise<void> { if (supabase) { await supabase.from('susu_groups').delete().eq('id', groupId); await supabase.from('group_members').delete().eq('group_id', groupId); } },
   async purgeDatabase(): Promise<void> {
-    localStorage.clear();
     if (supabase) {
       try {
         await supabase.from('daily_payments').delete().neq('id', '_never_matches_');
