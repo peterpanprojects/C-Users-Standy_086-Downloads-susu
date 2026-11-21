@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 
-
 import { useSusu } from '../../context/SusuContext';
 import { getWeekDays, formatShortDate, getDayOfWeekShort } from '../../utils/dates';
 import { Banknote, Users, Calendar, ArrowUpRight, CheckCircle2, Clock, AlertCircle, Plus, CreditCard, Sliders, Layers, MessageCircle } from 'lucide-react';
@@ -8,8 +7,6 @@ import { InviteMemberModal } from '../../components/agent/InviteMemberModal';
 import { ManualPayModal } from '../../components/agent/ManualPayModal';
 import { CreateGroupModal } from '../../components/agent/CreateGroupModal';
 import { AgentMessaging } from '../../components/agent/AgentMessaging';
-
-
 
 interface AgentDashboardPageProps {
   onNavigate: (path: string) => void;
@@ -45,7 +42,6 @@ const payoutSubaccount = agentPaymentConfig?.paystackSubaccountCode || '';
 const maskedMomo = payoutMomo ? payoutMomo.slice(0, 3) + '****' + payoutMomo.slice(-3) : null;
 const isConnected = !!payoutSubaccount || !!payoutMomo;
 
-
   const currentGroupMembers = members.filter((m) => m.groupId === group.id);
   const currentWeek = schedule.find((s) => s.status === 'current') || schedule[0];
   const activeMonday = currentWeek? currentWeek.weekStartDate : group.cycleStartDate;
@@ -59,7 +55,6 @@ const isConnected = !!payoutSubaccount || !!payoutMomo;
 
   return (
     <div className="agent-dashboard">
-      {/* TAB SWITCHER - ADD THIS */}
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', background: '#f1f5f9', padding: '4px', borderRadius: '12px', width: 'fit-content' }}>
         <button onClick={() => setActiveTab('overview')} style={{ padding: '0.6rem 1.2rem', borderRadius: '8px', border: 'none', fontWeight: 600, cursor: 'pointer', background: activeTab==='overview'?'white':'transparent', boxShadow: activeTab==='overview'?'0 1px 3px rgba(0,0,0,0.1)':'none' }}>Overview</button>
         <button onClick={() => setActiveTab('messages')} style={{ padding: '0.6rem 1.2rem', borderRadius: '8px', border: 'none', fontWeight: 600, cursor: 'pointer', background: activeTab==='messages'?'white':'transparent', boxShadow: activeTab==='messages'?'0 1px 3px rgba(0,0,0,0.1)':'none', display: 'flex', alignItems: 'center', gap: '6px' }}><MessageCircle size={16}/> Messages</button>
@@ -69,7 +64,6 @@ const isConnected = !!payoutSubaccount || !!payoutMomo;
         <AgentMessaging />
       ) : (
         <>
-      {/* Header Banner */}
       <div className="dashboard-header">
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap', marginBottom: '0.4rem' }}>
@@ -98,7 +92,6 @@ const isConnected = !!payoutSubaccount || !!payoutMomo;
         </div>
       </div>
 
-      {/* Payout Account - Paystack Verification */}
       <div className="card" style={{ padding: '1rem 1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', borderLeft: isConnected ? '4px solid #059669' : '4px solid #ef4444', background: isConnected ? '#ecfdf5' : '#fef2f2' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <div style={{ fontSize: '1.8rem' }}>💰</div>
@@ -119,7 +112,6 @@ const isConnected = !!payoutSubaccount || !!payoutMomo;
         </div>
       </div>
 
-      {/* Metrics Row */}
       <div className="metrics-grid">
         <div className="card metric-card">
           <div className="metric-header"><span className="metric-title">Collected This Week</span><Banknote size={20} color="var(--color-emerald-700)" /></div>
@@ -134,12 +126,11 @@ const isConnected = !!payoutSubaccount || !!payoutMomo;
         </div>
         <div className="card metric-card">
           <div className="metric-header"><span className="metric-title">Group Members</span><Users size={20} color="var(--color-emerald-700)" /></div>
-          <div className="metric-value">{members.length} Members</div>
-          <div className="metric-sub" style={{ color: 'var(--color-emerald-800)', fontWeight: 600 }}>{members.length > 0? 'Active Rotation' : 'No members'}</div>
+          <div className="metric-value">{currentGroupMembers.length} Members</div>
+          <div className="metric-sub" style={{ color: 'var(--color-emerald-800)', fontWeight: 600 }}>{currentGroupMembers.length > 0? 'Active Rotation' : 'No members'}</div>
         </div>
       </div>
 
-      {/* Matrix */}
       <div className="card" style={{ marginTop: '2rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
           <div><h3 style={{ fontSize: '1.2rem' }}>Active Week Payment Matrix</h3><p style={{ fontSize: '0.85rem', color: 'var(--color-slate-600)' }}>Week #{currentWeek?.weekNumber || 1} ({activeMonday} to {currentWeekDays[6]})</p></div>
@@ -149,7 +140,7 @@ const isConnected = !!payoutSubaccount || !!payoutMomo;
           <table className="data-table">
             <thead><tr><th>Member</th>{currentWeekDays.map(dStr => <th key={dStr} style={{ textAlign: 'center' }}>{getDayOfWeekShort(dStr)}<br/><span style={{ fontSize: '0.7rem', fontWeight: 400 }}>{formatShortDate(dStr)}</span></th>)}<th style={{ textAlign: 'right' }}>Total</th></tr></thead>
             <tbody>
-              {members.length === 0? <tr><td colSpan={currentWeekDays.length + 2} style={{ textAlign: 'center', padding: '2.5rem 1rem' }}>No members yet. Click + Invite.</td></tr> : members.map((mem) => {
+              {currentGroupMembers.length === 0? <tr><td colSpan={currentWeekDays.length + 2} style={{ textAlign: 'center', padding: '2.5rem 1rem' }}>No members yet. Click + Invite.</td></tr> : currentGroupMembers.map((mem) => {
                 const memWeekPayments = payments.filter(p => p.memberId === mem.id && currentWeekDays.includes(p.paymentDate));
                 const memPaidCount = memWeekPayments.filter(p => p.status === 'paid').length;
                 const memPaidTotal = memPaidCount * group.fixedDailyAmount;
