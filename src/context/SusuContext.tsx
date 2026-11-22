@@ -104,28 +104,6 @@ export interface SusuContextType {
   sendAgentMessage: (groupId: string, memberId: string, message: string) => Promise<void>;
 }
 
-// One-time purge
-if (typeof window!== 'undefined') {
-  const DEMO_PURGE_FLAG = 'susu_demo_purged_v2';
-  if (localStorage.getItem(DEMO_PURGE_FLAG)!== 'true') {
-    localStorage.removeItem('susu_platform_live_db_v1');
-    localStorage.removeItem('susu_platform_live_db_v2');
-    localStorage.removeItem('susu_agent_registry');
-    localStorage.removeItem('susu_current_agent_id');
-    localStorage.removeItem('susu_current_agent_email');
-    localStorage.removeItem('susu_active_agent_id');
-    localStorage.removeItem('susu_active_group_id');
-    localStorage.removeItem('susu_active_member_id');
-    localStorage.removeItem('susu_agent_payment_configs');
-    localStorage.setItem(DEMO_PURGE_FLAG, 'true');
-  }
-}
-
-const STORAGE_KEY = 'susu_platform_live_db_v2';
-const AGENT_REGISTRY_KEY = 'susu_agent_registry_v2';
-const CURRENT_AGENT_ID_KEY = 'susu_current_agent_id';
-const PLATFORM_SETTINGS_KEY = 'susu_platform_settings';
-
 const INITIAL_SUPER_ADMIN_USER: User = {
   id: 'usr-super-admin',
   name: 'Super Administrator',
@@ -245,40 +223,21 @@ const SusuContext = createContext<SusuContextType | undefined>(undefined);
 
 export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>(() => {
-    const saved = localStorage.getItem('susu_current_role') as UserRole;
-    return saved || 'visitor';
+    return 'visitor';
   });
-  const [activeMemberId, setActiveMemberIdState] = useState<string>(() => {
-    return localStorage.getItem('susu_active_member_id') || '';
-  });
+  const [activeMemberId, setActiveMemberIdState] = useState<string>('');
 
   const setActiveMemberId = (id: string) => {
     setActiveMemberIdState(id);
-    if (id) localStorage.setItem('susu_active_member_id', id);
-    else localStorage.removeItem('susu_active_member_id');
   };
 
   const [platformSettings, setPlatformSettings] = useState<PlatformSettings>(() => {
-    const saved = localStorage.getItem(PLATFORM_SETTINGS_KEY);
-    if (saved) {
-      try { return {...INITIAL_PLATFORM_SETTINGS,...JSON.parse(saved) }; } catch {}
-    }
-    const main = localStorage.getItem(STORAGE_KEY);
-    if (main) {
-      try {
-        const p = JSON.parse(main);
-        if (p.platformPaymentConfig?.agentActivationFee) {
-          return {...INITIAL_PLATFORM_SETTINGS, agentActivationFee: p.platformPaymentConfig.agentActivationFee };
-        }
-      } catch {}
-    }
     return INITIAL_PLATFORM_SETTINGS;
   });
 
   const updatePlatformSettings = (settings: Partial<PlatformSettings>) => {
     setPlatformSettings(prev => {
       const next = {...prev,...settings };
-      localStorage.setItem(PLATFORM_SETTINGS_KEY, JSON.stringify(next));
       return next;
     });
     setPlatformPaymentConfig(prev => ({...prev, agentActivationFee: settings.agentActivationFee?? prev.agentActivationFee }));
@@ -441,98 +400,23 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
   
   
   const [liveSupportConfig, setLiveSupportConfig] = useState<LiveSupportConfig>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try { const parsed = JSON.parse(saved); if (parsed.liveSupportConfig) return {...INITIAL_LIVE_SUPPORT_CONFIG,...parsed.liveSupportConfig }; } catch {}
-    }
     return INITIAL_LIVE_SUPPORT_CONFIG;
   });
   const updateLiveSupportConfig = (config: Partial<LiveSupportConfig>) => setLiveSupportConfig(prev => ({...prev,...config }));
 
   // --- Messaging State ---
-  const [agentMessages, setAgentMessages] = useState<AgentMessage[]>(() => {
-    const s = localStorage.getItem('susu_agent_messages');
-    return s? JSON.parse(s) : [];
-  });
-
-  useEffect(() => {
-    localStorage.setItem('susu_agent_messages', JSON.stringify(agentMessages));
-  }, [agentMessages]);
-
-  const [agentRegistry, setAgentRegistry] = useState<Record<string, AgentAccount>>(() => {
-    const regStr = localStorage.getItem(AGENT_REGISTRY_KEY);
-    if (regStr) { try { return JSON.parse(regStr); } catch {} }
-    return {};
-  });
-
-const [agents, setAgents] = useState<AgentAccount[]>(() => {
-    const agentMap = new Map<string, AgentAccount>();
-
-    // 1. Read from permanent key FIRST (fixes 4-day wipe)
-    const v2 = localStorage.getItem('susu_agents_v2');
-    if (v2) {
-      try {
-        const parsed = JSON.parse(v2) as AgentAccount[];
-        parsed.forEach((a) => { if (a.id) agentMap.set(a.id, a); });
-      } catch {}
-    }
-
-    // 2. Old DB
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed.agents)) {
-          parsed.agents.forEach((a: AgentAccount) => { 
-            if (a.id && !agentMap.has(a.id)) agentMap.set(a.id, a); 
-          });
-        } else if (parsed.agentAccount?.id && !agentMap.has(parsed.agentAccount.id)) {
-          agentMap.set(parsed.agentAccount.id, parsed.agentAccount);
-        }
-      } catch {}
-    }
-
-    // 3. Registry
-    const regStr = localStorage.getItem(AGENT_REGISTRY_KEY);
-    if (regStr) {
-      try {
-        const registry = JSON.parse(regStr);
-        (Object.values(registry) as AgentAccount[]).forEach(a => { 
-          if (a.id && !agentMap.has(a.id)) agentMap.set(a.id, a); 
-        });
-      } catch {}
-    }
-
-    return Array.from(agentMap.values());
-  });
+  const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
+  const [agentRegistry, setAgentRegistry] = useState<Record<string, AgentAccount>>({});
+  const [agents, setAgents] = useState<AgentAccount[]>([]);
  
 
-  const [currentAgentId, setCurrentAgentIdState] = useState<string>(() => {
-    return localStorage.getItem(CURRENT_AGENT_ID_KEY) || '';
-  });
-
-  const [activeAgentId, setActiveAgentIdState] = useState<string>(() => {
-    const currentEmail = localStorage.getItem(CURRENT_AGENT_ID_KEY);
-    if (currentEmail) {
-      const regStr = localStorage.getItem(AGENT_REGISTRY_KEY);
-      if (regStr) {
-        try {
-          const registry = JSON.parse(regStr);
-          if (registry[currentEmail]) return registry[currentEmail].id;
-        } catch {}
-      }
-    }
-    return localStorage.getItem('susu_active_agent_id') || '';
-  });
+  const [currentAgentId, setCurrentAgentIdState] = useState<string>('');
+  const [activeAgentId, setActiveAgentIdState] = useState<string>('');
 
   const setActiveAgentId = (agentId: string) => {
     setActiveAgentIdState(agentId);
-    localStorage.setItem('susu_active_agent_id', agentId);
-    localStorage.setItem('susu_current_agent_id', agentId);
     const agent = agents.find(a => a.id === agentId);
     if (agent?.email) {
-      const emailKey = agent.email.toLowerCase();
-      localStorage.setItem('susu_current_agent_email', emailKey);
       setCurrentAgentIdState(agentId);
     }
     const agentGroups = groups.filter(g => g.agentId === agentId);
@@ -540,11 +424,9 @@ const [agents, setAgents] = useState<AgentAccount[]>(() => {
       const isCurrentValid = agentGroups.some(g => g.id === activeGroupId);
       if (!isCurrentValid) {
         setActiveGroupIdState(agentGroups[0].id);
-        localStorage.setItem('susu_active_group_id', agentGroups[0].id);
       }
     } else {
       setActiveGroupIdState('');
-      localStorage.setItem('susu_active_group_id', '');
     }
   };
 
@@ -553,8 +435,10 @@ const [agents, setAgents] = useState<AgentAccount[]>(() => {
       const fromArray = agents.find(a => a.id === activeAgentId);
       if (fromArray) return fromArray;
     }
-    const currentEmail = localStorage.getItem(CURRENT_AGENT_ID_KEY);
-    if (currentEmail && agentRegistry[currentEmail]) return agentRegistry[currentEmail];
+    if (currentAgentId) {
+      const current = agents.find(a => a.id === currentAgentId);
+      if (current) return current;
+    }
     return agents[0] || EMPTY_AGENT_ACCOUNT;
   })();
 
@@ -564,58 +448,18 @@ const [agents, setAgents] = useState<AgentAccount[]>(() => {
       if (agent.email) updated[agent.email.toLowerCase()] = agent;
     });
     setAgentRegistry(updated);
-    localStorage.setItem(AGENT_REGISTRY_KEY, JSON.stringify(updated));
   }, [agents]);
 
-  const [groups, setGroups] = useState<SusuGroup[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed.groups) && parsed.groups.length > 0) return parsed.groups;
-        if (parsed.group) return [parsed.group];
-      } catch {}
-    }
-    return [];
-  });
-
-  const [activeGroupId, setActiveGroupIdState] = useState<string>(() => {
-    const savedActive = localStorage.getItem('susu_active_group_id');
-    if (savedActive) return savedActive;
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed.activeGroupId) return parsed.activeGroupId;
-        if (parsed.group?.id) return parsed.group.id;
-        if (Array.isArray(parsed.groups) && parsed.groups[0]?.id) return parsed.groups[0].id;
-      } catch {}
-    }
-    return '';
-  });
+  const [groups, setGroups] = useState<SusuGroup[]>([]);
+  const [activeGroupId, setActiveGroupIdState] = useState<string>('');
 
   const setActiveGroupId = (groupId: string) => {
     setActiveGroupIdState(groupId);
-    localStorage.setItem('susu_active_group_id', groupId);
   };
 
-  const [members, setMembers] = useState<GroupMember[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) { try { const parsed = JSON.parse(saved); if (parsed.members) return parsed.members; } catch {} }
-    return [];
-  });
-
-  const [payments, setPayments] = useState<DailyPayment[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) { try { const parsed = JSON.parse(saved); if (parsed.payments) return parsed.payments; } catch {} }
-    return [];
-  });
-
-  const [posts, setPosts] = useState<FeedPost[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) { try { const parsed = JSON.parse(saved); if (parsed.posts) return parsed.posts; } catch {} }
-    return INITIAL_POSTS;
-  });
+  const [members, setMembers] = useState<GroupMember[]>([]);
+  const [payments, setPayments] = useState<DailyPayment[]>([]);
+  const [posts, setPosts] = useState<FeedPost[]>(INITIAL_POSTS);
 
    const FALLBACK_GROUP: SusuGroup = {
     id: 'fallback-platform-group',
@@ -656,18 +500,7 @@ const [agents, setAgents] = useState<AgentAccount[]>(() => {
   const myMembers = members.filter(m => m.groupId && myGroupIds.has(m.groupId));
   const myPayments = payments.filter(p => p.groupId && myGroupIds.has(p.groupId));
 
-  const [agentPaymentConfigs, setAgentPaymentConfigs] = useState<Record<string, AgentPaymentConfig>>(() => {
-    const saved = localStorage.getItem('susu_agent_payment_configs');
-    if (saved) { try { return JSON.parse(saved); } catch {} }
-    const legacy = localStorage.getItem(STORAGE_KEY);
-    if (legacy) {
-      try {
-        const p = JSON.parse(legacy);
-        if (p.agentPaymentConfig) return { default: {...INITIAL_AGENT_PAYMENT_CONFIG,...p.agentPaymentConfig } };
-      } catch {}
-    }
-    return {};
-  });
+  const [agentPaymentConfigs, setAgentPaymentConfigs] = useState<Record<string, AgentPaymentConfig>>({});
 
   const agentPaymentConfig: AgentPaymentConfig = (() => {
     if (activeAgentId && agentPaymentConfigs[activeAgentId]) return agentPaymentConfigs[activeAgentId];
@@ -680,7 +513,6 @@ const [agents, setAgents] = useState<AgentAccount[]>(() => {
     setAgentPaymentConfigs(prev => {
       const current = prev[aid] || INITIAL_AGENT_PAYMENT_CONFIG;
       const updated = { ...prev, [aid]: { ...current, ...config } };
-      try { localStorage.setItem('susu_agent_payment_configs', JSON.stringify(updated)); } catch {}
       return updated;
     });
 
@@ -720,7 +552,6 @@ const [agents, setAgents] = useState<AgentAccount[]>(() => {
     setAgentPaymentConfigs(prev => {
       const current = prev[agentId] || INITIAL_AGENT_PAYMENT_CONFIG;
       const updated = { ...prev, [agentId]: { ...current, ...config } };
-      try { localStorage.setItem('susu_agent_payment_configs', JSON.stringify(updated)); } catch {}
       return updated;
     });
     // ✅ Same direct cloud save for specific agent
@@ -753,13 +584,6 @@ const [agents, setAgents] = useState<AgentAccount[]>(() => {
 
 
   const [platformPaymentConfig, setPlatformPaymentConfig] = useState<SuperAdminPaymentConfig>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed.platformPaymentConfig) return {...INITIAL_PLATFORM_PAYMENT_CONFIG,...parsed.platformPaymentConfig, agentActivationFee: parsed.platformPaymentConfig.agentActivationFee || INITIAL_PLATFORM_SETTINGS.agentActivationFee };
-      } catch {}
-    }
     return {...INITIAL_PLATFORM_PAYMENT_CONFIG, agentActivationFee: platformSettings.agentActivationFee };
   });
 
@@ -787,9 +611,7 @@ const [agents, setAgents] = useState<AgentAccount[]>(() => {
           dbState.agents.forEach((a: AgentAccount) => { 
             if (a.id && !merged.has(a.id)) merged.set(a.id, a); 
           });
-          const result = Array.from(merged.values());
-          localStorage.setItem('susu_agents_v2', JSON.stringify(result));
-          return result;
+          return Array.from(merged.values());
         });
       }
       
@@ -805,35 +627,10 @@ const [agents, setAgents] = useState<AgentAccount[]>(() => {
         }
       }
       if (dbState.liveSupportConfig) setLiveSupportConfig(dbState.liveSupportConfig);
+      if (dbState.agentMessages) setAgentMessages(dbState.agentMessages);
       setIsDbLoaded(true);
     });
   }, []);
-
-  // Protect agents from being wiped
-  useEffect(() => {
-    if (agents.length > 0) {
-      localStorage.setItem('susu_agents_v2', JSON.stringify(agents));
-    }
-  }, [agents]);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 const hasSkippedFirstSave = React.useRef(false);
   useEffect(() => {
@@ -848,10 +645,9 @@ const hasSkippedFirstSave = React.useRef(false);
 const stateToSave = {
   group, groups, activeGroupId, members, payments, posts,
   agentAccount, agents, agentPaymentConfig, agentPaymentConfigs,
-  platformPaymentConfig, liveSupportConfig
+  platformPaymentConfig, liveSupportConfig, agentMessages
   // notifications removed - Supabase is source of truth
 };
-      localStorage.setItem('susu_current_role', currentUserRole);
       DatabaseService.persistState(stateToSave as any).catch(err => console.warn('DB sync:', err));
     }, 1000);
     return () => clearTimeout(timeout);
@@ -888,7 +684,6 @@ const stateToSave = {
 
   const setRole = (role: UserRole, memberId?: string) => {
     setCurrentUserRole(role);
-    localStorage.setItem('susu_current_role', role);
     if (role === 'member') {
       const resolved = memberId || activeMemberId || members[0]?.id || '';
       setActiveMemberId(resolved);
@@ -896,7 +691,7 @@ const stateToSave = {
   };
 
   const createGroup = (name: string, fixedDailyAmount: number, cycleStartDate?: string, currency?: string, agentId?: string): SusuGroup => {
-    const currentAgentId = localStorage.getItem('susu_current_agent_id') || activeAgentId || '';
+    const currentAgentId = activeAgentId || '';
     const assignedAgentId = agentId || (currentUserRole === 'agent'? currentAgentId : (agentAccount?.id || agents[0]?.id || ''));
     const newGroup: SusuGroup = {
       id: `group-${Date.now()}`,
@@ -994,19 +789,10 @@ const createAgent = (data: Partial<AgentAccount>): AgentAccount => {
   
   setAgents(prev => {
     const updated = [newAgent, ...prev.filter(a => a.email?.toLowerCase() !== newAgent.email.toLowerCase())];
-    localStorage.setItem('susu_agents_v2', JSON.stringify(updated));
-    const registry: Record<string, AgentAccount> = {};
-    updated.forEach(a => { if (a.email) registry[a.email.toLowerCase()] = a; });
-    localStorage.setItem(AGENT_REGISTRY_KEY, JSON.stringify(registry));
     return updated;
   });
   
   setActiveAgentId(newId);
-  localStorage.setItem('susu_current_agent_id', newId);
-  if (newAgent.email) {
-    localStorage.setItem('susu_current_agent_email', newAgent.email.toLowerCase());
-  }
-  localStorage.setItem('susu_current_agent_v2', JSON.stringify(newAgent));
 
   // ✅ NEW: SAVE TO SUPABASE SO PHONE CAN SEE IT
   (async () => {
@@ -1149,7 +935,6 @@ const createAgent = (data: Partial<AgentAccount>): AgentAccount => {
       setAgentRegistry(prev => {
         const next = {...prev };
         delete next[targetAgent.email.toLowerCase()];
-        localStorage.setItem(AGENT_REGISTRY_KEY, JSON.stringify(next));
         return next;
       });
     }
@@ -1518,19 +1303,9 @@ const acceptInviteToken = async (token: string, name: string, phone: string): Pr
     setAgents([]);
     setActiveAgentId('');
     setAgentPaymentConfigs({});
-    try { localStorage.removeItem('susu_agent_payment_configs'); } catch {}
     setPlatformPaymentConfig({...INITIAL_PLATFORM_PAYMENT_CONFIG, agentActivationFee: platformSettings.agentActivationFee });
     setCurrentUserRole('visitor');
     setActiveMemberId('');
-    localStorage.removeItem('susu_current_role');
-    localStorage.removeItem('susu_active_member_id');
-    localStorage.removeItem('susu_active_group_id');
-    localStorage.removeItem('susu_active_agent_id');
-    localStorage.removeItem('susu_current_agent_id');
-    localStorage.removeItem('susu_current_agent_email');
-    localStorage.removeItem(AGENT_REGISTRY_KEY);
-    localStorage.removeItem(CURRENT_AGENT_ID_KEY);
-    localStorage.removeItem(STORAGE_KEY);
     setAgentRegistry({});
     setCurrentAgentIdState('');
     DatabaseService.purgeDatabase().catch(e => console.warn(e));

@@ -15,6 +15,7 @@ export interface DatabaseState {
   posts: FeedPost[]; agentAccount: AgentAccount | null; agents?: AgentAccount[];
   agentPaymentConfig: AgentPaymentConfig | null; agentPaymentConfigs?: Record<string, AgentPaymentConfig>;
   platformPaymentConfig: SuperAdminPaymentConfig | null; liveSupportConfig: LiveSupportConfig | null; notifications: AppNotification[];
+  agentMessages?: any[];
 }
 
 export function validateDatabaseIntegrity(state: Partial<DatabaseState>): { valid: boolean; error?: string } {
@@ -29,13 +30,14 @@ export const DatabaseService = {
         const groupsRes = await supabase.from('susu_groups').select('*').order('created_at', { ascending: false });
         const membersRes = await supabase.from('group_members').select('*').order('position_in_rotation', { ascending: true });
 
-        const [paymentsRes, postsRes, agentRes, paymentConfigsRes, liveConfigRes, notifsRes] = await Promise.all([
+        const [paymentsRes, postsRes, agentRes, paymentConfigsRes, liveConfigRes, notifsRes, agentMessagesRes] = await Promise.all([
           supabase.from('daily_payments').select('*'),
           supabase.from('feed_posts').select('*').order('created_at', { ascending: false }),
           supabase.from('agent_accounts').select('id, first_name, surname, email, phone, avatar_url, is_otp_verified, is_kyc_submitted, is_activated, activation_fee_amount, activation_paid_at, activation_tx_ref, admin_approval_status, admin_approved_at, admin_review_notes, license_number, status, created_at').order('created_at', { ascending: false }),
           supabase.from('payment_configs').select('*'),
           supabase.from('live_support_configs').select('*').limit(1).maybeSingle(),
-          supabase.from('notifications').select('*').order('created_at', { ascending: false })
+          supabase.from('notifications').select('*').order('created_at', { ascending: false }),
+          supabase.from('agent_messages').select('*').order('created_at', { ascending: true })
         ]);
 
         const groupsList: SusuGroup[] = (groupsRes.data || []).map((g: any) => ({
@@ -115,14 +117,40 @@ export const DatabaseService = {
           groups: groupsList,
           members: (membersRes.data || []).map((m: any) => ({ id: m.id, groupId: m.group_id, userId: m.user_id, name: m.name, email: m.email, phone: m.phone, avatarUrl: m.avatar_url || '', inviteStatus: m.invite_status, inviteToken: m.invite_token, uniqueCode: m.unique_code, joinedAt: m.joined_at, positionInRotation: m.position_in_rotation, reliabilityScore: m.reliability_score, slotLocked: m.slot_locked ?? (m.invite_status === 'active') })),
           payments: (paymentsRes.data || []).map((p: any) => ({ id: p.id, groupId: p.group_id, memberId: p.member_id, paymentDate: p.payment_date, amount: Number(p.amount), status: p.status, paymentMethod: p.payment_method, paystackReference: p.paystack_reference, paidAt: p.paid_at })),
-          posts: (postsRes.data as any) || [],
+          posts: (postsRes.data || []).map((post: any) => ({
+            id: post.id,
+            authorName: post.author_name,
+            authorRole: post.author_role,
+            title: post.title,
+            body: post.body,
+            publishedAt: post.published_at,
+            visibility: post.visibility,
+            likesCount: post.likes_count,
+            pinned: Boolean(post.pinned)
+          })),
           agents: (agentRes.data || []).map((agt: any) => ({ id: agt.id, firstName: agt.first_name, surname: agt.surname, email: agt.email, phone: agt.phone, avatarUrl: agt.avatar_url || '', isOtpVerified: agt.is_otp_verified, isKycSubmitted: agt.is_kyc_submitted, isActivated: agt.is_activated, activationFeeAmount: Number(agt.activation_fee_amount || 0), activationPaidAt: agt.activation_paid_at, activationTxRef: agt.activation_tx_ref, adminApprovalStatus: agt.admin_approval_status, adminApprovedAt: agt.admin_approved_at, adminReviewNotes: agt.admin_review_notes, licenseNumber: agt.license_number, kycData: agt.kyc_data })),
           agentAccount: null,
           agentPaymentConfig: agentPaymentConfig,
           agentPaymentConfigs: agentPaymentConfigs,
           platformPaymentConfig,
-          liveSupportConfig: liveConfigRes.data || null,
+          liveSupportConfig: liveConfigRes.data ? ({
+            provider: liveConfigRes.data.provider || 'rezolv',
+            enabled: liveConfigRes.data.enabled,
+            apiKey: liveConfigRes.data.api_key || '',
+            welcomeMessage: liveConfigRes.data.welcome_message || '',
+            autoReply: liveConfigRes.data.auto_reply
+          } as LiveSupportConfig) : null,
           notifications: (notifsRes.data as any) || [],
+          agentMessages: (agentMessagesRes.data || []).map((message: any) => ({
+            id: message.id,
+            agentId: message.agent_id,
+            groupId: message.group_id,
+            memberId: message.member_id,
+            senderRole: 'agent',
+            message: message.message,
+            createdAt: message.created_at,
+            read: Boolean(message.read)
+          })),
         } as any;
       } catch (err) { console.error('Supabase load failed:', err); }
     }
@@ -144,6 +172,39 @@ export const DatabaseService = {
       if (state.agents?.length) await supabase.from('agent_accounts').upsert(state.agents.map(a => ({ id: a.id, first_name: a.firstName, surname: a.surname, email: a.email, phone: a.phone, is_otp_verified: a.isOtpVerified, is_kyc_submitted: a.isKycSubmitted, is_activated: a.isActivated, activation_fee_amount: a.activationFeeAmount, activation_paid_at: a.activationPaidAt, activation_tx_ref: a.activationTxRef, admin_approval_status: a.adminApprovalStatus, admin_approved_at: a.adminApprovedAt, admin_review_notes: a.adminReviewNotes, license_number: a.licenseNumber, ...(a.kycData ? { kyc_data: a.kycData } : {}) })), { onConflict: 'id' });
       if (state.members?.length) await supabase.from('group_members').upsert(state.members.map(m => ({ id: m.id, group_id: m.groupId, user_id: m.userId, name: m.name, email: m.email, phone: m.phone, invite_status: m.inviteStatus, invite_token: m.inviteToken, unique_code: m.uniqueCode, joined_at: m.joinedAt, position_in_rotation: m.positionInRotation, reliability_score: (m as any).reliabilityScore || 100 })), { onConflict: 'id' });
       if (state.payments?.length) await supabase.from('daily_payments').upsert(state.payments.map(p => ({ id: p.id, group_id: p.groupId, member_id: p.memberId, payment_date: p.paymentDate, amount: p.amount, status: p.status, payment_method: p.paymentMethod, paystack_reference: p.paystackReference, paid_at: p.paidAt })), { onConflict: 'id' });
+      if (state.posts?.length) await supabase.from('feed_posts').upsert(state.posts.map(post => ({
+        id: post.id,
+        group_id: null,
+        author_name: post.authorName,
+        author_role: post.authorRole,
+        title: post.title,
+        body: post.body,
+        published_at: post.publishedAt,
+        visibility: post.visibility,
+        likes_count: post.likesCount
+      })), { onConflict: 'id' });
+
+      if (state.liveSupportConfig) {
+        const existing = await supabase.from('live_support_configs').select('id').limit(1).maybeSingle();
+        await supabase.from('live_support_configs').upsert({
+          ...(existing.data?.id ? { id: existing.data.id } : {}),
+          provider: (state.liveSupportConfig as any).provider || 'rezolv',
+          enabled: (state.liveSupportConfig as any).enabled ?? true,
+          api_key: (state.liveSupportConfig as any).apiKey || '',
+          welcome_message: (state.liveSupportConfig as any).welcomeMessage || '',
+          auto_reply: (state.liveSupportConfig as any).autoReply ?? true
+        }, { onConflict: 'id' });
+      }
+
+      if (state.agentMessages?.length) await supabase.from('agent_messages').upsert(state.agentMessages.map((message: any) => ({
+        id: message.id,
+        agent_id: message.agentId,
+        group_id: message.groupId,
+        member_id: message.memberId,
+        message: message.message,
+        read: Boolean(message.read),
+        created_at: message.createdAt
+      })), { onConflict: 'id' });
 
       if (state.platformPaymentConfig) {
         const cfg = state.platformPaymentConfig as any;

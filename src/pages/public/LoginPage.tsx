@@ -99,17 +99,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
             kycData: data.kyc_data
           } as AgentAccount;
 
-          localStorage.setItem('susu_current_agent_id', foundAgent.id);
-          localStorage.setItem('susu_active_agent_id', foundAgent.id);
-          localStorage.setItem('susu_current_agent_email', foundAgent.email.toLowerCase());
-          
-          // Also add to local agents list
-          const existing = localStorage.getItem('susu_agents_v2');
-          let list: AgentAccount[] = [];
-          try { list = existing ? JSON.parse(existing) : []; } catch {}
-          const filtered = list.filter(a => a.email.toLowerCase() !== foundAgent.email.toLowerCase());
-          localStorage.setItem('susu_agents_v2', JSON.stringify([foundAgent, ...filtered]));
-
           setActiveAgentId(foundAgent.id);
           setRole('agent');
 
@@ -124,19 +113,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
       console.warn('Supabase agent login failed, falling back to local', err);
     }
 
-    // 4. Fallback: OLD localStorage agents (for offline dev)
-    const allAgents: AgentAccount[] = (() => {
-      const map = new Map<string, AgentAccount>();
-      try {
-        const v2 = localStorage.getItem('susu_agents_v2');
-        if (v2) {
-          const parsed = JSON.parse(v2) as AgentAccount[];
-          parsed.forEach(a => { if (a.id) map.set(a.id, a); });
-        }
-      } catch {}
-      agents.forEach(a => { if (a.id && !map.has(a.id)) map.set(a.id, a); });
-      return Array.from(map.values());
-    })();
+    // 4. Supabase-loaded agents
+    const allAgents: AgentAccount[] = agents;
 
     const matchingAgent = allAgents.find(
       (a) =>
