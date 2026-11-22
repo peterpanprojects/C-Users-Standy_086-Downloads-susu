@@ -6,7 +6,7 @@ import { ShieldCheck, LogIn, AlertCircle, User as UserIcon, Eye, EyeOff } from '
 interface LoginPageProps { onNavigate: (path: string) => void; }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
-  const { setRole, agents, setActiveAgentId, members, loginWithUniqueCode } = useSusu();
+  const { setRole, agents, setActiveAgentId, updateAgentAccount, members, loginWithUniqueCode } = useSusu();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -99,6 +99,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
             kycData: data.kyc_data
           } as AgentAccount;
 
+          updateAgentAccount(foundAgent);
           setActiveAgentId(foundAgent.id);
           setRole('agent');
 

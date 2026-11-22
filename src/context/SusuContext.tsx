@@ -893,7 +893,11 @@ const createAgent = (data: Partial<AgentAccount>): AgentAccount => {
     } else {
       const data = agentIdOrPartial;
       const targetId = data.id || activeAgentId;
-      setAgents(prev => prev.map(a => a.id === targetId? {...a,...data } : a));
+      setAgents(prev => {
+        const existing = prev.find(a => a.id === targetId);
+        const updated = existing ? { ...existing, ...data } : { ...INITIAL_AGENT_ACCOUNT, ...data, id: targetId };
+        return [updated, ...prev.filter(a => a.id !== targetId)];
+      });
     }
   };
 
