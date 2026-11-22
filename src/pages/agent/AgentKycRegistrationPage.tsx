@@ -226,7 +226,7 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
@@ -275,13 +275,14 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
       submittedAt: new Date().toISOString()
     };
 
-    registerAgentKyc(kycPayload);
-
-    setTimeout(() => {
+    try {
+      await registerAgentKyc(kycPayload);
       setSubmitting(false);
-      // Route immediately to the Paid Agent Activation Page
       onNavigate('/agent/activate');
-    }, 600);
+    } catch (submitError) {
+      setSubmitting(false);
+      setError(submitError instanceof Error ? submitError.message : 'Unable to save your KYC submission.');
+    }
   };
 
   return (

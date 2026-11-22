@@ -7,7 +7,7 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey && !supabaseUrl.includes('your-project'));
 let supabaseInstance: SupabaseClient | null = null;
 export const supabase: SupabaseClient | null = isSupabaseConfigured
-  ? (supabaseInstance ??= createClient(supabaseUrl, supabaseAnonKey, { auth: { persistSession: false, autoRefreshToken: false } }))
+  ? (supabaseInstance ??= createClient(supabaseUrl, supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true } }))
   : null;
 
 export interface DatabaseState {
@@ -161,6 +161,30 @@ export const DatabaseService = {
     if (!supabase) return null;
     const { data } = await supabase.from('agent_accounts').select('kyc_data').eq('id', agentId).maybeSingle();
     return (data as any)?.kyc_data || null;
+  },
+
+  async saveAgentAccount(agent: AgentAccount, userId?: string): Promise<void> {
+    if (!supabase) throw new Error('Supabase is not configured.');
+    const { error } = await supabase.from('agent_accounts').upsert({
+      id: agent.id,
+      ...(userId ? { user_id: userId } : {}),
+      first_name: agent.firstName,
+      surname: agent.surname,
+      email: agent.email,
+      phone: agent.phone,
+      is_otp_verified: agent.isOtpVerified,
+      is_kyc_submitted: agent.isKycSubmitted,
+      is_activated: agent.isActivated,
+      activation_fee_amount: agent.activationFeeAmount,
+      activation_paid_at: agent.activationPaidAt,
+      activation_tx_ref: agent.activationTxRef,
+      admin_approval_status: agent.adminApprovalStatus,
+      admin_approved_at: agent.adminApprovedAt,
+      admin_review_notes: agent.adminReviewNotes,
+      license_number: agent.licenseNumber,
+      ...(agent.kycData ? { kyc_data: agent.kycData } : {})
+    }, { onConflict: 'id' });
+    if (error) throw new Error(`Failed to save agent ${agent.email}: ${error.message}`);
   },
 
   async persistState(state: DatabaseState): Promise<void> {

@@ -48,7 +48,7 @@ import { DeveloperAdminPage } from './pages/admin/DeveloperAdminPage';
 import './styles/global.css';
 
 const AppContent: React.FC = () => {
-  const { currentUserRole, setRole, agentAccount, group } = useSusu();
+  const { currentUserRole, setRole, agentAccount, group, isAgentAuthReady } = useSusu();
 
   const [currentPath, setCurrentPath] = useState<string>(() => {
     const path = window.location.pathname;
@@ -80,6 +80,24 @@ const AppContent: React.FC = () => {
     setMobileSidebarOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  useEffect(() => {
+    if (
+      isAgentAuthReady &&
+      currentPath.startsWith('/agent/') &&
+      currentPath !== '/agent/login' &&
+      currentUserRole !== 'agent'
+    ) {
+      handleNavigate('/login');
+    }
+  }, [isAgentAuthReady, currentPath, currentUserRole]);
+
+  useEffect(() => {
+    if (!isAgentAuthReady || currentUserRole !== 'agent' || currentPath !== '/') return;
+    if (!agentAccount.isKycSubmitted) handleNavigate('/agent/register-kyc');
+    else if (!agentAccount.isActivated) handleNavigate('/agent/activate');
+    else handleNavigate('/agent/dashboard');
+  }, [isAgentAuthReady, currentUserRole, currentPath, agentAccount]);
 
   /**
    * Agent gate:
@@ -222,6 +240,10 @@ const AppContent: React.FC = () => {
         return <LandingPage onNavigate={handleNavigate} />;
     }
   };
+
+  if (!isAgentAuthReady && currentPath.startsWith('/agent/') && currentPath !== '/agent/login') {
+    return <div className="app-container" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>Restoring your agent session...</div>;
+  }
 
   // Standalone Layout (No Navigation Bar) for Agent Sign Up
   if (currentPath === '/signup') {

@@ -1,21 +1,60 @@
 import React, { useState } from 'react';
-import { AgentAccount } from '../../types/susu';
 import { useSusu } from '../../context/SusuContext';
 import { ShieldCheck, LogIn, AlertCircle, User as UserIcon, Eye, EyeOff } from 'lucide-react';
 
 interface LoginPageProps { onNavigate: (path: string) => void; }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
-  const { setRole, agents, setActiveAgentId, updateAgentAccount, members, loginWithUniqueCode } = useSusu();
+  const { setRole, setActiveAgentId, updateAgentAccount, members, loginWithUniqueCode } = useSusu();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const sendAgentSignInLink = async () => {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    const email = identifier.trim().toLowerCase();
+    if (!email.includes('@')) {
+      setErrorMessage('Enter the email address linked to your agent account.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { supabase } = await import('../../services/db');
+      if (!supabase) throw new Error('Supabase is not configured.');
+      const { data: agent, error: lookupError } = await supabase
+        .from('agent_accounts')
+        .select('id')
+        .eq('email', email)
+        .maybeSingle();
+      if (lookupError) throw lookupError;
+      if (!agent) throw new Error('No agent profile was found for this email.');
+
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo: window.location.origin,
+          shouldCreateUser: true
+        }
+      });
+      if (error) throw error;
+      setSuccessMessage('A secure sign-in link has been sent. Open it on this device to restore your agent session.');
+    } catch (error) {
+      console.error('Unable to send agent sign-in link:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to send a sign-in link.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleUniversalLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setSuccessMessage(null);
     setLoading(true);
 
     const input = identifier.trim();
@@ -61,89 +100,86 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
       setLoading(false); return;
     }
 
-    // 3. FIXED: AGENT LOGIN - TRY SUPABASE FIRST (cross-device)
+    // 3. Agent login uses Supabase Auth so the session survives refresh.
     try {
       const { supabase } = await import('../../services/db');
-      if (supabase && input.includes('@')) {
-        const { data, error } = await supabase
+      if (!supabase || !input.includes('@')) {
+        setErrorMessage('Enter the email address linked to your agent account.');
+        setLoading(false); return;
+      }
+
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: inputLower,
+        password
+      });
+      if (authError) {
+        setErrorMessage('Email or password is incorrect. For an older agent account, request a secure sign-in link by email.');
+        setLoading(false); return;
+      }
+      if (!authData.user) {
+        setErrorMessage('Supabase did not return a signed-in user.');
+        setLoading(false); return;
+      }
+
+      let { data, error } = await supabase
+        .from('agent_accounts')
+        .select('*')
+        .eq('user_id', authData.user.id)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        const result = await supabase
           .from('agent_accounts')
           .select('*')
           .eq('email', inputLower)
-          .single();
-        
-        if (data && !error) {
-          // Optional password check - remove if you don't store password
-          const savedPassword = (data.kyc_data as any)?.password || (data as any).password;
-          if (savedPassword && savedPassword !== password) {
-            setErrorMessage('Invalid password.');
-            setLoading(false); return;
-          }
-          if (!password || password.length < 6) {
-            setErrorMessage('Password must be at least 6 characters.');
-            setLoading(false); return;
-          }
-
-          // Save this agent to this device
-          const foundAgent: AgentAccount = {
-            id: data.id,
-            firstName: data.first_name,
-            surname: data.surname,
-            email: data.email,
-            phone: data.phone,
-            isOtpVerified: data.is_otp_verified,
-            isKycSubmitted: data.is_kyc_submitted,
-            isActivated: data.is_activated,
-            activationFeeAmount: Number(data.activation_fee_amount || 150),
-            adminApprovalStatus: data.admin_approval_status,
-            licenseNumber: data.license_number,
-            kycData: data.kyc_data
-          } as AgentAccount;
-
-          updateAgentAccount(foundAgent);
-          setActiveAgentId(foundAgent.id);
-          setRole('agent');
-
-          if (!foundAgent.isKycSubmitted) onNavigate('/agent/register-kyc');
-          else if (!foundAgent.isActivated) onNavigate('/agent/activate');
-          else onNavigate('/agent/dashboard');
-          
-          setLoading(false); return;
+          .maybeSingle();
+        if (result.error) throw result.error;
+        data = result.data;
+        if (data && data.user_id !== authData.user.id) {
+          const { error: linkError } = await supabase
+            .from('agent_accounts')
+            .update({ user_id: authData.user.id })
+            .eq('id', data.id);
+          if (linkError) throw linkError;
         }
       }
-    } catch (err) {
-      console.warn('Supabase agent login failed, falling back to local', err);
-    }
-
-    // 4. Supabase-loaded agents
-    const allAgents: AgentAccount[] = agents;
-
-    const matchingAgent = allAgents.find(
-      (a) =>
-        (a.email && a.email.toLowerCase() === inputLower) ||
-        (a.phone && a.phone.replace(/\s+/g, '') === input.replace(/\s+/g, '')) ||
-        (a.licenseNumber && a.licenseNumber.toUpperCase() === inputUpper)
-    );
-
-    if (matchingAgent) {
-      const savedPassword = (matchingAgent as any).password;
-      if (savedPassword && savedPassword !== password) {
-        setErrorMessage('Invalid password.');
+      if (!data) {
+        await supabase.auth.signOut();
+        setErrorMessage('This Supabase login has no linked agent profile. Contact the administrator.');
         setLoading(false); return;
       }
-      if (!password || password.length < 6) {
-        setErrorMessage('Password must be at least 6 characters.');
-        setLoading(false); return;
-      }
-      setActiveAgentId(matchingAgent.id);
+
+      const foundAgent = {
+        id: data.id,
+        firstName: data.first_name,
+        surname: data.surname,
+        email: data.email,
+        phone: data.phone || '',
+        avatarUrl: data.avatar_url || '',
+        isOtpVerified: Boolean(data.is_otp_verified),
+        isKycSubmitted: Boolean(data.is_kyc_submitted),
+        isActivated: Boolean(data.is_activated),
+        activationFeeAmount: Number(data.activation_fee_amount || 150),
+        activationPaidAt: data.activation_paid_at,
+        activationTxRef: data.activation_tx_ref,
+        adminApprovalStatus: data.admin_approval_status || 'none',
+        adminApprovedAt: data.admin_approved_at,
+        adminReviewNotes: data.admin_review_notes,
+        licenseNumber: data.license_number || '',
+        kycData: data.kyc_data
+      };
+      updateAgentAccount(foundAgent);
+      setActiveAgentId(foundAgent.id);
       setRole('agent');
-      if (!matchingAgent.isKycSubmitted) onNavigate('/agent/register-kyc');
-      else if (!matchingAgent.isActivated) onNavigate('/agent/activate');
+      if (!foundAgent.isKycSubmitted) onNavigate('/agent/register-kyc');
+      else if (!foundAgent.isActivated) onNavigate('/agent/activate');
       else onNavigate('/agent/dashboard');
       setLoading(false); return;
+    } catch (err) {
+      console.error('Supabase agent login failed:', err);
+      setErrorMessage(err instanceof Error ? err.message : 'Unable to sign in. Please try again.');
+      setLoading(false); return;
     }
-
-    setErrorMessage('Unrecognized credentials. Agent not found in cloud. Please create account on this deployed site first.');
-    setLoading(false);
   };
 
   return (
@@ -160,6 +196,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
         {errorMessage && (
           <div style={{ padding: '0.75rem 1rem', background: '#fee2e2', border: '1px solid #fca5a5', color: '#dc2626', borderRadius: '8px', fontSize: '0.85rem', marginBottom: '1.25rem', display: 'flex', gap: '0.5rem' }}>
             <AlertCircle size={16} /> <span>{errorMessage}</span>
+          </div>
+        )}
+        {successMessage && (
+          <div style={{ padding: '0.75rem 1rem', background: '#dcfce7', border: '1px solid #86efac', color: '#166534', borderRadius: '8px', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
+            {successMessage}
           </div>
         )}
 
@@ -184,6 +225,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
 
           <button type="submit" className="btn-gold" style={{ width: '100%', justifyContent: 'center', padding: '0.85rem', fontSize: '1rem', marginTop: '1.25rem' }} disabled={loading}>
             <LogIn size={18} /> {loading ? 'Signing in...' : 'Sign In to Portal'}
+          </button>
+          <button type="button" onClick={sendAgentSignInLink} disabled={loading} style={{ width: '100%', marginTop: '0.75rem', padding: '0.65rem', border: '1px solid var(--color-slate-300)', borderRadius: '8px', background: '#fff', color: 'var(--color-emerald-800)', fontWeight: 700, cursor: 'pointer' }}>
+            Email me a secure agent sign-in link
           </button>
         </form>
 

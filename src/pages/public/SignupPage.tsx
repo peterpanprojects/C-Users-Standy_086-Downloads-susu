@@ -7,7 +7,7 @@ interface SignupPageProps {
 }
 
 export const SignupPage: React.FC<SignupPageProps> = ({ onNavigate }) => {
-  const { setRole, createAgent } = useSusu();
+  const { createAgent } = useSusu();
 
   // Step 1: Form credentials
   const [firstName, setFirstName] = useState('');
@@ -19,12 +19,15 @@ export const SignupPage: React.FC<SignupPageProps> = ({ onNavigate }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   // No OTP step: proceed directly after initial validation
 
-  const handleInitialSubmit = (e: React.FormEvent) => {
+  const handleInitialSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
+    setSuccessMsg(null);
 
     if (!firstName.trim() || !surname.trim()) {
       setErrorMsg('Please provide both first name and surname.');
@@ -41,33 +44,42 @@ export const SignupPage: React.FC<SignupPageProps> = ({ onNavigate }) => {
       return;
     }
 
-    // Create new distinct agent record into context
-    createAgent({
-      firstName: firstName.trim(),
-      surname: surname.trim(),
-      email: email.trim(),
-      phone: phone.trim(),
-      isOtpVerified: true,
-      isKycSubmitted: false,
-      isActivated: false,
-      adminApprovalStatus: 'none',
-      kycData: {
-        fullName: `${firstName.trim()} ${surname.trim()}`,
-        dob: '',
-        cityCountry: 'Accra, Ghana',
-        gender: 'male',
-        idCardType: 'ecowas_card',
-        idCardNumber: '',
-        digitalAddress: '',
-        residentialAddress: '',
-        occupation: '',
-        maritalStatus: 'single',
-        status: 'pending_verification'
-      }
-    });
+    setLoading(true);
+    try {
+      const { requiresEmailConfirmation } = await createAgent({
+        firstName: firstName.trim(),
+        surname: surname.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        isOtpVerified: true,
+        isKycSubmitted: false,
+        isActivated: false,
+        adminApprovalStatus: 'none',
+        kycData: {
+          fullName: `${firstName.trim()} ${surname.trim()}`,
+          dob: '',
+          cityCountry: 'Accra, Ghana',
+          gender: 'male',
+          idCardType: 'ecowas_card',
+          idCardNumber: '',
+          digitalAddress: '',
+          residentialAddress: '',
+          occupation: '',
+          maritalStatus: 'single',
+          status: 'pending_verification'
+        }
+      }, password);
 
-    setRole('agent');
-    onNavigate('/agent/register-kyc');
+      if (requiresEmailConfirmation) {
+        setSuccessMsg('Account created. Check your email and confirm your address, then sign in to complete agent registration.');
+        return;
+      }
+      onNavigate('/agent/register-kyc');
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'Unable to create your account.');
+    } finally {
+      setLoading(false);
+    }
   };
 
 
@@ -163,6 +175,11 @@ export const SignupPage: React.FC<SignupPageProps> = ({ onNavigate }) => {
           >
             <AlertCircle size={16} />
             <span>{errorMsg}</span>
+          </div>
+        )}
+        {successMsg && (
+          <div style={{ padding: '0.75rem 1rem', background: '#dcfce7', border: '1px solid #86efac', color: '#166534', borderRadius: '8px', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
+            {successMsg}
           </div>
         )}
 
@@ -312,6 +329,7 @@ export const SignupPage: React.FC<SignupPageProps> = ({ onNavigate }) => {
               <button
                 type="submit"
                 className="btn-gold"
+                disabled={loading}
                 style={{
                   width: '100%',
                   justifyContent: 'center',
@@ -320,7 +338,7 @@ export const SignupPage: React.FC<SignupPageProps> = ({ onNavigate }) => {
                   fontSize: '0.98rem'
                 }}
               >
-                Create account & proceed <ArrowRight size={18} />
+                {loading ? 'Creating account...' : 'Create account & proceed'} {!loading && <ArrowRight size={18} />}
               </button>
             </form>
 

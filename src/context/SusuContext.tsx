@@ -19,7 +19,7 @@ import {
 import { formatDateStr, getNearestMonday } from '../utils/dates';
 import { generatePayoutSchedule, reorderRotationQueue, shuffleFutureRotation } from '../utils/rotation';
 import { generatePaystackReference } from '../utils/paystack';
-import { DatabaseService } from '../services/db';
+import { DatabaseService, supabase } from '../services/db';
 
 // --- FIX 1: Define AgentMessage here ---
 export interface AgentMessage {
@@ -40,6 +40,7 @@ export interface PlatformSettings {
 }
 
 export interface SusuContextType {
+  isAgentAuthReady: boolean;
   currentUserRole: UserRole;
   activeMemberId: string;
   activeUser: User;
@@ -58,7 +59,8 @@ export interface SusuContextType {
   agents: AgentAccount[];
   activeAgentId: string;
   setActiveAgentId: (agentId: string) => void;
-  createAgent: (data: Partial<AgentAccount>) => AgentAccount;
+  createAgent: (data: Partial<AgentAccount>, password: string) => Promise<{ requiresEmailConfirmation: boolean }>;
+  signOut: () => Promise<void>;
   agentPaymentConfig: AgentPaymentConfig;
   platformPaymentConfig: SuperAdminPaymentConfig;
   platformSettings: PlatformSettings;
@@ -69,9 +71,9 @@ export interface SusuContextType {
   updateAgentPaymentConfigForAgent: (agentId: string, config: Partial<AgentPaymentConfig>) => void;
   updatePlatformPaymentConfig: (config: Partial<SuperAdminPaymentConfig>) => void;
   updatePlatformSettings: (settings: Partial<PlatformSettings>) => void;
-  registerAgentKyc: (kycData: AgentKycData) => void;
+  registerAgentKyc: (kycData: AgentKycData) => Promise<void>;
   activateAgentAccount: (paymentMethod: string, txRef: string) => void;
-  approveAgentKyc: (agentId: string, notes?: string) => void;
+  approveAgentKyc: (agentId: string, notes?: string) => Promise<void>;
   rejectAgentKyc: (agentId: string, reason: string) => void;
   updateAgentAccount: (agentIdOrPartial: string | Partial<AgentAccount>, partial?: Partial<AgentAccount>) => void;
   updateAgentKyc: (agentIdOrKyc: string | Partial<AgentKycData>, kycData?: Partial<AgentKycData>) => void;
@@ -222,6 +224,7 @@ const INITIAL_POSTS: FeedPost[] = [];
 const SusuContext = createContext<SusuContextType | undefined>(undefined);
 
 export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [isAgentAuthReady, setAgentAuthReady] = useState(!supabase);
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>(() => {
     return 'visitor';
   });
@@ -412,6 +415,102 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [currentAgentId, setCurrentAgentIdState] = useState<string>('');
   const [activeAgentId, setActiveAgentIdState] = useState<string>('');
+
+  useEffect(() => {
+    if (!supabase) {
+      setAgentAuthReady(true);
+      return;
+    }
+
+    let mounted = true;
+    const restoreAgent = async (user: { id: string; email?: string }) => {
+      try {
+        let { data, error } = await supabase
+          .from('agent_accounts')
+          .select('*')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (error) throw error;
+
+        if (!data && user.email) {
+          const result = await supabase
+            .from('agent_accounts')
+            .select('*')
+            .eq('email', user.email.toLowerCase())
+            .maybeSingle();
+          if (result.error) throw result.error;
+          data = result.data;
+          if (data && data.user_id !== user.id) {
+            const { error: linkError } = await supabase
+              .from('agent_accounts')
+              .update({ user_id: user.id })
+              .eq('id', data.id);
+            if (linkError) throw linkError;
+          }
+        }
+
+        if (!data) throw new Error('No agent profile is linked to the signed-in Supabase user.');
+        const restoredAgent: AgentAccount = {
+          id: data.id,
+          firstName: data.first_name,
+          surname: data.surname,
+          email: data.email,
+          phone: data.phone || '',
+          avatarUrl: data.avatar_url || '',
+          isOtpVerified: Boolean(data.is_otp_verified),
+          isKycSubmitted: Boolean(data.is_kyc_submitted),
+          isActivated: Boolean(data.is_activated),
+          activationFeeAmount: Number(data.activation_fee_amount || 150),
+          activationPaidAt: data.activation_paid_at,
+          activationTxRef: data.activation_tx_ref,
+          adminApprovalStatus: data.admin_approval_status || 'none',
+          adminApprovedAt: data.admin_approved_at,
+          adminReviewNotes: data.admin_review_notes,
+          licenseNumber: data.license_number || '',
+          kycData: data.kyc_data
+        };
+        if (mounted) {
+          setAgents(prev => [restoredAgent, ...prev.filter(agent => agent.id !== restoredAgent.id)]);
+          setActiveAgentIdState(restoredAgent.id);
+          setCurrentAgentIdState(restoredAgent.id);
+          setCurrentUserRole('agent');
+        }
+      } catch (error) {
+        console.error('Unable to restore the signed-in agent:', error);
+      } finally {
+        if (mounted) setAgentAuthReady(true);
+      }
+    };
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        window.setTimeout(() => {
+          if (mounted) void restoreAgent(session.user);
+        }, 0);
+      } else if (event === 'SIGNED_OUT' && mounted) {
+        setCurrentUserRole('visitor');
+        setActiveAgentIdState('');
+        setCurrentAgentIdState('');
+        setAgentAuthReady(true);
+      } else if (event === 'INITIAL_SESSION' && mounted) {
+        setAgentAuthReady(true);
+      }
+    });
+
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (error) throw error;
+      if (data.session?.user) return restoreAgent(data.session.user);
+      if (mounted) setAgentAuthReady(true);
+    }).catch(error => {
+      console.error('Unable to restore Supabase auth session:', error);
+      if (mounted) setAgentAuthReady(true);
+    });
+
+    return () => {
+      mounted = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
 
   const setActiveAgentId = (agentId: string) => {
     setActiveAgentIdState(agentId);
@@ -690,6 +789,16 @@ const stateToSave = {
     }
   };
 
+  const signOut = async () => {
+    if (supabase) {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw new Error(`Unable to sign out: ${error.message}`);
+    }
+    setCurrentUserRole('visitor');
+    setActiveAgentIdState('');
+    setCurrentAgentIdState('');
+  };
+
   const createGroup = (name: string, fixedDailyAmount: number, cycleStartDate?: string, currency?: string, agentId?: string): SusuGroup => {
     const currentAgentId = activeAgentId || '';
     const assignedAgentId = agentId || (currentUserRole === 'agent'? currentAgentId : (agentAccount?.id || agents[0]?.id || ''));
@@ -776,7 +885,32 @@ const stateToSave = {
 
 
 
-const createAgent = (data: Partial<AgentAccount>): AgentAccount => {
+const createAgent = async (data: Partial<AgentAccount>, password: string): Promise<{ requiresEmailConfirmation: boolean }> => {
+  if (!supabase) throw new Error('Supabase is not configured.');
+  const email = data.email?.trim().toLowerCase() || '';
+  if (!email) throw new Error('Enter a valid email address.');
+
+  const { data: existingAgent, error: existingAgentError } = await supabase
+    .from('agent_accounts')
+    .select('id')
+    .eq('email', email)
+    .maybeSingle();
+  if (existingAgentError) throw existingAgentError;
+  if (existingAgent) {
+    throw new Error('An agent profile already exists for this email. Ask the administrator to securely link your existing account.');
+  }
+
+  const { data: authData, error: authError } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      emailRedirectTo: window.location.origin,
+      data: { first_name: data.firstName, surname: data.surname }
+    }
+  });
+  if (authError) throw new Error(authError.message);
+  if (!authData.user) throw new Error('Supabase did not return a user for this sign-up.');
+
   const newId = `agt-${Date.now()}`;
   const newAgent: AgentAccount = {
     ...INITIAL_AGENT_ACCOUNT,
@@ -784,42 +918,17 @@ const createAgent = (data: Partial<AgentAccount>): AgentAccount => {
     licenseNumber: `SUSU-AGT-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`,
     activationFeeAmount: platformSettings.agentActivationFee,
     ...data,
-    email: data.email?.toLowerCase() || '',
+    email,
   } as AgentAccount;
-  
-  setAgents(prev => {
-    const updated = [newAgent, ...prev.filter(a => a.email?.toLowerCase() !== newAgent.email.toLowerCase())];
-    return updated;
-  });
-  
-  setActiveAgentId(newId);
+  await DatabaseService.saveAgentAccount(newAgent, authData.user.id);
 
-  // ✅ NEW: SAVE TO SUPABASE SO PHONE CAN SEE IT
-  (async () => {
-    try {
-      const { supabase } = await import('../services/db');
-      if (supabase) {
-        const { error } = await supabase.from('agent_accounts').upsert({
-          id: newAgent.id,
-          first_name: newAgent.firstName,
-          surname: newAgent.surname,
-          email: newAgent.email,
-          phone: newAgent.phone,
-          is_otp_verified: newAgent.isOtpVerified,
-          is_kyc_submitted: newAgent.isKycSubmitted,
-          is_activated: newAgent.isActivated,
-          activation_fee_amount: newAgent.activationFeeAmount,
-          admin_approval_status: newAgent.adminApprovalStatus,
-          license_number: newAgent.licenseNumber,
-          kyc_data: newAgent.kycData
-        }, { onConflict: 'id' });
-        if (error) console.error('Supabase agent save error:', error);
-        else console.log('✅ Agent saved to Supabase for cross-device login');
-      }
-    } catch (e) { console.warn(e); }
-  })();
-  
-  return newAgent;
+  if (authData.session) {
+    setAgents(prev => [newAgent, ...prev.filter(a => a.email.toLowerCase() !== email)]);
+    setActiveAgentIdState(newAgent.id);
+    setCurrentAgentIdState(newAgent.id);
+    setCurrentUserRole('agent');
+  }
+  return { requiresEmailConfirmation: !authData.session };
 };
 
 
@@ -831,18 +940,19 @@ const createAgent = (data: Partial<AgentAccount>): AgentAccount => {
 
 
 
-  const registerAgentKyc = (kycData: AgentKycData) => {
-    setAgents(prev => prev.map(a => {
-      if (a.id === activeAgentId) {
-        return {
-         ...a,
-          kycData,
-          isKycSubmitted: true,
-          licenseNumber: a.licenseNumber &&!a.licenseNumber.includes('Pending')? a.licenseNumber : `SUSU-AGT-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
-        };
-      }
-      return a;
-    }));
+  const registerAgentKyc = async (kycData: AgentKycData) => {
+    const agent = agents.find(a => a.id === activeAgentId);
+    if (!agent) throw new Error('No active agent account is selected.');
+    const updatedAgent = {
+      ...agent,
+      kycData,
+      isKycSubmitted: true,
+      licenseNumber: agent.licenseNumber && !agent.licenseNumber.includes('Pending')
+        ? agent.licenseNumber
+        : `SUSU-AGT-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
+    };
+    setAgents(prev => prev.map(a => a.id === activeAgentId ? updatedAgent : a));
+    await DatabaseService.saveAgentAccount(updatedAgent);
   };
 
   const activateAgentAccount = (paymentMethod: string, txRef: string) => {
@@ -861,19 +971,21 @@ const createAgent = (data: Partial<AgentAccount>): AgentAccount => {
     }));
   };
 
-  const approveAgentKyc = (agentId: string, notes?: string) => {
-    setAgents(prev => prev.map(a => {
-      if (a.id === agentId) {
-        return {
-         ...a,
-          adminApprovalStatus: 'verified',
-          adminApprovedAt: new Date().toISOString(),
-          adminReviewNotes: notes || 'KYC verified and approved by Admin.',
-          licenseNumber: a.licenseNumber &&!a.licenseNumber.includes('Pending')? a.licenseNumber : `SUSU-AGT-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
-        };
-      }
-      return a;
-    }));
+  const approveAgentKyc = async (agentId: string, notes?: string) => {
+    const agent = agents.find(a => a.id === agentId);
+    if (!agent) throw new Error('Agent account not found.');
+    if (!agent.isKycSubmitted) throw new Error('This agent has not submitted KYC yet.');
+    const updatedAgent = {
+      ...agent,
+      adminApprovalStatus: 'verified' as const,
+      adminApprovedAt: new Date().toISOString(),
+      adminReviewNotes: notes || 'KYC verified and approved by Admin.',
+      licenseNumber: agent.licenseNumber && !agent.licenseNumber.includes('Pending')
+        ? agent.licenseNumber
+        : `SUSU-AGT-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
+    };
+    setAgents(prev => prev.map(a => a.id === agentId ? updatedAgent : a));
+    await DatabaseService.saveAgentAccount(updatedAgent);
   };
 
   const rejectAgentKyc = (agentId: string, reason: string) => {
@@ -1323,8 +1435,9 @@ const acceptInviteToken = async (token: string, name: string, phone: string): Pr
 
   return (
     <SusuContext.Provider value={{
+      isAgentAuthReady,
       currentUserRole, activeMemberId, activeUser: getActiveUser(), group, groups, myGroups, myMembers, myPayments, activeGroupId, setActiveGroupId, members, schedule, payments, posts,
-      agentAccount, agents, activeAgentId, setActiveAgentId, createAgent, agentPaymentConfig, platformPaymentConfig, platformSettings,
+      agentAccount, agents, activeAgentId, setActiveAgentId, createAgent, signOut, agentPaymentConfig, platformPaymentConfig, platformSettings,
       setRole, createGroup, updateGroupSettings, updateAgentPaymentConfig, updateAgentPaymentConfigForAgent, updatePlatformPaymentConfig, updatePlatformSettings,
       registerAgentKyc, activateAgentAccount, approveAgentKyc, rejectAgentKyc, updateAgentAccount, updateAgentKyc, deleteAgent,
       updateMemberProfile, loginWithUniqueCode, inviteMember, acceptInviteToken, removeMember, deleteGroup,

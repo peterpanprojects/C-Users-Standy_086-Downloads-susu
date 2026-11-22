@@ -791,9 +791,14 @@ const renderDocumentPreview = (label: string, src?: string) => {
                     <button
                       className="btn-primary"
                       style={{ padding: '0.6rem 1.25rem', fontSize: '0.88rem', fontWeight: 700 }}
-                      onClick={() => {
-                        approveAgentKyc(pendingAgent.id, 'Identity and business verified by Super Admin.');
-                        alert(`Agent ${pendingAgent.firstName} approved and licensed!`);
+                      onClick={async () => {
+                        try {
+                          await approveAgentKyc(pendingAgent.id, 'Identity and business verified by Super Admin.');
+                          alert(`Agent ${pendingAgent.firstName} approved and licensed!`);
+                        } catch (error) {
+                          console.error('Agent approval failed:', error);
+                          alert(error instanceof Error ? error.message : 'Unable to approve agent.');
+                        }
                       }}
                     >
                       ✅ Quick Approve
@@ -1397,9 +1402,14 @@ const renderDocumentPreview = (label: string, src?: string) => {
                   <button
                     className="btn-primary"
                     style={{ padding: '0.7rem 1.5rem', fontSize: '0.9rem', fontWeight: 700 }}
-                    onClick={() => {
-                      approveAgentKyc(pendingAgent.id, 'Identity and business documents verified by admin.');
-                      alert(`Agent ${pendingAgent.firstName} ${pendingAgent.surname} KYC approved! Full privileges unlocked.`);
+                    onClick={async () => {
+                      try {
+                        await approveAgentKyc(pendingAgent.id, 'Identity and business documents verified by admin.');
+                        alert(`Agent ${pendingAgent.firstName} ${pendingAgent.surname} KYC approved! Full privileges unlocked.`);
+                      } catch (error) {
+                        console.error('Agent approval failed:', error);
+                        alert(error instanceof Error ? error.message : 'Unable to approve agent.');
+                      }
                     }}
                   >
                     ✅ Quick Approve
@@ -1840,9 +1850,14 @@ const renderDocumentPreview = (label: string, src?: string) => {
           setDossierAgent(null);
         }}
         agent={dossierAgent}
-        onApprove={(agentId, notes) => {
-          approveAgentKyc(agentId, notes);
-          alert(`KYC approved and Agent License issued!`);
+        onApprove={async (agentId, notes) => {
+          try {
+            await approveAgentKyc(agentId, notes);
+            alert(`KYC approved and Agent License issued!`);
+          } catch (error) {
+            console.error('Agent approval failed:', error);
+            alert(error instanceof Error ? error.message : 'Unable to approve agent.');
+          }
         }}
         onReject={(agentId, reason) => {
           rejectAgentKyc(agentId, reason);

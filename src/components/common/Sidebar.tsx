@@ -36,6 +36,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const {
     currentUserRole,
     setRole,
+    signOut,
     group,
     groups,
     myGroups,
@@ -53,7 +54,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await signOut();
+    } catch (error) {
+      console.error('Sign out failed:', error);
+      alert(error instanceof Error ? error.message : 'Unable to sign out.');
+      return;
+    }
     setRole('visitor');
     onNavigate('/');
     if (onCloseMobile) {
