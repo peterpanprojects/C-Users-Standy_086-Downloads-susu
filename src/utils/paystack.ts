@@ -1,11 +1,30 @@
 export interface PaystackTransactionParams {
   key: string;
   email: string;
-  amount: number; // in pesewas / kobo / cents (amount * 100)
+  amount: number; // Major currency units; converted to the provider's smallest unit at checkout.
   currency: string;
   ref: string;
-  onSuccess: (response: { reference: string; status: string }) => void;
+  onSuccess: (response: { reference: string; status: string }) => void | Promise<void>;
   onClose: () => void;
+}
+
+export function normalizePaystackCurrency(currency: string): string {
+  if (currency === 'GH₵' || currency === 'GHS') return 'GHS';
+  if (currency === '₦' || currency === 'NGN') return 'NGN';
+  if (currency === '$' || currency === 'USD') return 'USD';
+  return currency;
+}
+
+export async function verifyPaystackTransaction(reference: string, amount: number, currency: string): Promise<void> {
+  const response = await fetch('/api/paystack/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reference, amount, currency: normalizePaystackCurrency(currency) })
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || result?.verified !== true) {
+    throw new Error(result?.error || 'Paystack could not confirm this payment. Please contact support before retrying.');
+  }
 }
 
 export function generatePaystackReference(): string {
@@ -42,10 +61,18 @@ export async function initializePaystackCheckout(params: PaystackTransactionPara
       key: activeKey,
       email: params.email,
       amount: Math.round(params.amount * 100),
-      currency: params.currency === 'GH₵' ? 'GHS' : params.currency === '₦' ? 'NGN' : 'USD',
+      currency: normalizePaystackCurrency(params.currency),
       ref: params.ref,
-      callback: (response: any) => {
-        params.onSuccess({ reference: response.reference || params.ref, status: 'success' });
+      callback: async (response: any) => {
+        const reference = response.reference || params.ref;
+        try {
+          await verifyPaystackTransaction(reference, params.amount, params.currency);
+          await params.onSuccess({ reference, status: 'success' });
+        } catch (error) {
+          console.error('Paystack transaction verification failed:', error);
+          alert(error instanceof Error ? error.message : 'Payment verification failed. Please contact support.');
+          params.onClose();
+        }
       },
       onClose: () => {
         params.onClose();
@@ -53,7 +80,8 @@ export async function initializePaystackCheckout(params: PaystackTransactionPara
     });
     handler.openIframe();
   } else {
-    // Fallback if script blocked
-    console.warn('Paystack inline SDK not loaded, using sandbox simulator.');
+    console.error('Paystack Inline could not be loaded.');
+    alert('Paystack checkout could not be loaded. Check your connection and try again.');
+    params.onClose();
   }
 }

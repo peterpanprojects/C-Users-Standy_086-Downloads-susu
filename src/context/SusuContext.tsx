@@ -71,7 +71,7 @@ export interface SusuContextType {
   updateGroupSettings: (settings: Partial<SusuGroup>, groupId?: string) => void;
   updateAgentPaymentConfig: (config: Partial<AgentPaymentConfig>) => void;
   updateAgentPaymentConfigForAgent: (agentId: string, config: Partial<AgentPaymentConfig>) => void;
-  updatePlatformPaymentConfig: (config: Partial<SuperAdminPaymentConfig>) => void;
+  updatePlatformPaymentConfig: (config: Partial<SuperAdminPaymentConfig>) => Promise<void>;
   updatePlatformSettings: (settings: Partial<PlatformSettings>) => void;
   registerAgentKyc: (kycData: AgentKycData) => Promise<void>;
   activateAgentAccount: (paymentMethod: string, txRef: string) => Promise<void>;
@@ -88,7 +88,7 @@ export interface SusuContextType {
   deleteGroup: (groupId?: string) => void;
   markCashPayment: (memberId: string, dateStr: string) => void;
   remindMember: (memberId: string) => Promise<void>;
-  processPayment: (memberId: string, dates: string[], method: PaymentMethod, paystackRef?: string) => void;
+  processPayment: (memberId: string, dates: string[], method: PaymentMethod, paystackRef?: string) => Promise<void>;
   reorderCalendar: (fromIndex: number, toIndex: number) => void;
   shuffleCalendar: () => void;
   addFeedPost: (title: string, body: string, visibility: 'public' | 'group') => void;
@@ -132,8 +132,6 @@ export const INITIAL_AGENT_PAYMENT_CONFIG: AgentPaymentConfig = {
   gatewayStatus: 'active',
   storeCheckoutType: 'Direct online payments',
   publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '',
-  secretKey: import.meta.env.VITE_PAYSTACK_SECRET_KEY || '',
-  webhookSecret: '',
   enableDirectStoreProcessing: true,
   minResellerTopUp: 10.0,
   payoutMethod: 'momo',
@@ -162,14 +160,11 @@ export const INITIAL_PLATFORM_PAYMENT_CONFIG: SuperAdminPaymentConfig = {
   gatewayStatus: 'active',
   storeCheckoutType: 'Direct online payments',
   publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '',
-  secretKey: import.meta.env.VITE_PAYSTACK_SECRET_KEY || '',
   enableDirectStoreProcessing: true,
   minResellerTopUp: 10.0,
   activeGateway: 'paystack',
   environment: 'live',
   masterPublicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '',
-  masterSecretKey: import.meta.env.VITE_PAYSTACK_SECRET_KEY || '',
-  webhookSecret: '',
   webhookUrl: '',
   enableMultiGatewayFallback: false,
   fallbackGateway: 'none',
@@ -820,35 +815,9 @@ const stateToSave = {
   };
 
   const updatePlatformPaymentConfig = async (config: Partial<SuperAdminPaymentConfig>) => {
-    setPlatformPaymentConfig(prev => {
-      const next = {...prev,...config };
-      (async () => {
-        try {
-          const { supabase } = await import('../services/db');
-          if (!supabase) return;
-          const dbConfig = {
-            provider: next.provider,
-            paymentMode: next.paymentMode,
-            gatewayStatus: next.gatewayStatus,
-            storeCheckoutType: next.storeCheckoutType,
-            publicKey: next.masterPublicKey || next.publicKey,
-            secretKey: next.masterSecretKey || next.secretKey,
-            webhookSecret: next.webhookSecret,
-            environment: next.environment,
-            masterPublicKey: next.masterPublicKey || next.secretKey? next.masterPublicKey : next.publicKey,
-            masterSecretKey: next.masterSecretKey || next.secretKey,
-            platformTreasuryAccount: (next as any).platformTreasuryAccount || '',
-            globalPlatformFeePercent: next.globalPlatformFeePercent,
-            agentActivationFee: next.agentActivationFee,
-          };
-          const { error } = await supabase
-           .from('payment_configs')
-           .upsert({ entity_type: 'super_admin', config: dbConfig }, { onConflict: 'entity_type' });
-          if (error) console.error('Save error:', error);
-        } catch (e) { console.error(e); }
-      })();
-      return next;
-    });
+    const next = { ...platformPaymentConfig, ...config };
+    await DatabaseService.savePlatformPaymentConfig(next);
+    setPlatformPaymentConfig(next);
     if (config.agentActivationFee!== undefined) {
       updatePlatformSettings({ agentActivationFee: config.agentActivationFee });
     }
@@ -1328,17 +1297,35 @@ const acceptInviteToken = async (token: string, name: string, phone: string): Pr
 
 
 
-  const processPayment = (memberId: string, dates: string[], method: PaymentMethod, paystackRef?: string) => {
+  const processPayment = async (memberId: string, dates: string[], method: PaymentMethod, paystackRef?: string) => {
+    if (!group || dates.length === 0) throw new Error('Payment could not be saved because its group or payment dates are missing.');
     const ref = paystackRef || generatePaystackReference();
     const paidTimestamp = new Date().toISOString();
+    const updatedPayments = dates.map((date, index) => {
+      const existing = payments.find(payment => payment.memberId === memberId && payment.paymentDate === date);
+      return {
+        ...existing,
+        id: existing?.id || `pay-${memberId}-${date}`,
+        groupId: group.id,
+        memberId,
+        paymentDate: date,
+        amount: existing?.amount || group.fixedDailyAmount,
+        status: 'paid' as const,
+        paymentMethod: method,
+        paystackReference: method === 'paystack' && index === 0 ? ref : undefined,
+        paidAt: paidTimestamp
+      };
+    });
+
+    await DatabaseService.savePayments(updatedPayments);
     setPayments(prev => {
-      const updated = [...prev];
-      dates.forEach(dStr => {
-        const idx = updated.findIndex(p => p.memberId === memberId && p.paymentDate === dStr);
-        if (idx >= 0) updated[idx] = {...updated[idx], status: 'paid', paymentMethod: method, paystackReference: ref, paidAt: paidTimestamp };
-        else updated.push({ id: `pay-${memberId}-${dStr}`, groupId: group?.id || '', memberId, paymentDate: dStr, amount: group?.fixedDailyAmount || 0, status: 'paid', paymentMethod: method, paystackReference: ref, paidAt: paidTimestamp });
+      const updatedById = new Map(updatedPayments.map(payment => [payment.id, payment]));
+      const next = prev.map(payment => updatedById.get(payment.id) || payment);
+      const existingIds = new Set(prev.map(payment => payment.id));
+      updatedPayments.forEach(payment => {
+        if (!existingIds.has(payment.id)) next.push(payment);
       });
-      return updated;
+      return next;
     });
   };
 

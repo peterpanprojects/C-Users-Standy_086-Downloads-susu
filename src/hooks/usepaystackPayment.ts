@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { supabase } from '../services/db';
+import { verifyPaystackTransaction } from '../utils/paystack';
 
 export function usePaystackPayment() {
   const [loading, setLoading] = useState(false);
@@ -21,18 +22,24 @@ export function usePaystackPayment() {
       currency: 'GHS',
       ref: `SUSU_${paymentId}_${Date.now()}`,
       callback: async function(response: any) {
-        // Verify and save to Supabase
-        if (supabase) {
-          await supabase.from('daily_payments').update({
+        try {
+          await verifyPaystackTransaction(response.reference, amount, 'GHS');
+          if (!supabase) throw new Error('Supabase is not configured.');
+          const { error } = await supabase.from('daily_payments').update({
             status: 'paid',
             payment_method: 'paystack',
             paystack_reference: response.reference,
             paid_at: new Date().toISOString()
           }).eq('id', paymentId);
+          if (error) throw new Error(`Failed to save payment: ${error.message}`);
+          alert('Payment successful! ' + response.reference);
+          window.location.reload();
+        } catch (error) {
+          console.error('Unable to verify or save payment:', error);
+          alert(error instanceof Error ? error.message : 'Unable to verify or save payment.');
+        } finally {
+          setLoading(false);
         }
-        alert('Payment successful! ' + response.reference);
-        window.location.reload();
-        setLoading(false);
       },
       onClose: () => {
         setLoading(false);

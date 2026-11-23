@@ -260,6 +260,17 @@ ALTER TABLE payment_configs ALTER COLUMN entity_id DROP NOT NULL;
 ALTER TABLE payment_configs DROP CONSTRAINT IF EXISTS uq_payment_config_entity;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_config_entity_type ON payment_configs(entity_type);
 
+-- Remove legacy secret material from JSON that was previously readable by browser clients.
+UPDATE payment_configs
+SET config = config
+    - 'secretKey'
+    - 'masterSecretKey'
+    - 'webhookSecret'
+    - 'apiSecret'
+    - 'secret_key'
+    - 'webhook_secret'
+WHERE config ?| ARRAY['secretKey', 'masterSecretKey', 'webhookSecret', 'apiSecret', 'secret_key', 'webhook_secret'];
+
 -- ------------------------------------------------------------------------------
 -- 10. LIVE SUPPORT CONFIGURATIONS TABLE
 -- Live chat integration configuration

@@ -4,8 +4,6 @@ import {
   ShieldCheck,
   CreditCard,
   Key,
-  Eye,
-  EyeOff,
   AlertTriangle,
   CheckCircle2,
   Save,
@@ -30,14 +28,19 @@ export const MasterPaymentEngineTab: React.FC<MasterPaymentEngineTabProps> = ({ 
 
   const [paymentSubTab, setPaymentSubTab] = useState<'provider' | 'master_engine'>('provider');
   const [form, setForm] = useState<SuperAdminPaymentConfig>(safeConfig);
-  const [showSecretKey, setShowSecretKey] = useState(false);
-  const [showWebhookSecret, setShowWebhookSecret] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Sync when DB loads
   useEffect(() => {
     if (platformPaymentConfig) {
-      setForm(platformPaymentConfig);
+      setForm({
+        ...platformPaymentConfig,
+        activeGateway: 'paystack',
+        fallbackGateway: 'none',
+        enableMultiGatewayFallback: false
+      });
     }
   }, [platformPaymentConfig]);
 
@@ -46,27 +49,37 @@ export const MasterPaymentEngineTab: React.FC<MasterPaymentEngineTabProps> = ({ 
   const totalVolumeCollected = totalPaidTransactions.reduce((sum, p) => sum + (p.amount || 0), 0);
   const platformRevenue = (totalVolumeCollected * (form?.globalPlatformFeePercent || 2)) / 100;
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    updatePlatformPaymentConfig(form);
-    setSaved(true);
-    if (onAddSystemLog) {
-      onAddSystemLog({
-        id: `log-${Date.now()}`,
-        timestamp: new Date().toISOString(),
-        level: 'security',
-        message: `MASTER PAYMENT CONFIG UPDATED: Primary gateway=${form.activeGateway}, mode=${form.environment}, platform_fee=${form.globalPlatformFeePercent}%, activation_fee=${form.agentActivationFee?? 150}`,
-        source: 'payment-engine-config'
-      });
+    setSaveError(null);
+    setSaving(true);
+    try {
+      await updatePlatformPaymentConfig(form);
+      setSaved(true);
+      if (onAddSystemLog) {
+        onAddSystemLog({
+          id: `log-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          level: 'security',
+          message: `MASTER PAYMENT CONFIG UPDATED: Primary gateway=${form.activeGateway}, mode=${form.environment}, platform_fee=${form.globalPlatformFeePercent}%, activation_fee=${form.agentActivationFee ?? 150}`,
+          source: 'payment-engine-config'
+        });
+      }
+      setTimeout(() => setSaved(false), 3500);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Unable to save platform payment configuration.');
+    } finally {
+      setSaving(false);
     }
-    setTimeout(() => setSaved(false), 3500);
   };
 
   const handleToggleEmergencyFreeze = () => {
     const nextFreezeState =!form.emergencyPayoutFreeze;
     const updated = {...form, emergencyPayoutFreeze: nextFreezeState };
     setForm(updated);
-    updatePlatformPaymentConfig(updated);
+    void updatePlatformPaymentConfig(updated).catch(error => {
+      setSaveError(error instanceof Error ? error.message : 'Unable to update the payout freeze.');
+    });
     if (onAddSystemLog) {
       onAddSystemLog({
         id: `log-${Date.now()}`,
@@ -140,6 +153,11 @@ export const MasterPaymentEngineTab: React.FC<MasterPaymentEngineTabProps> = ({ 
             </div>
           </div>
 
+          {saveError && (
+            <div role="alert" style={{ background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem' }}>
+              {saveError}
+            </div>
+          )}
           {saved && (
             <div style={{ background: 'var(--color-emerald-100)', color: 'var(--color-emerald-950)', padding: '1rem 1.25rem', borderRadius: '12px', marginBottom: '1.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <CheckCircle2 size={20} color="#047857" /> Master Platform Payment Configuration updated successfully!
@@ -170,11 +188,8 @@ export const MasterPaymentEngineTab: React.FC<MasterPaymentEngineTabProps> = ({ 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem', marginTop:'1rem' }}>
                 <div className="form-group">
                   <label className="form-label">Primary Gateway Provider</label>
-                  <select className="form-select" value={form.activeGateway} onChange={(e) => setForm({...form, activeGateway: e.target.value as any })}>
+                  <select className="form-select" value="paystack" disabled>
                     <option value="paystack">Paystack</option>
-                    <option value="flutterwave">Flutterwave</option>
-                    <option value="hubtel">Hubtel MoMo</option>
-                    <option value="stripe">Stripe International</option>
                   </select>
                 </div>
                 <div className="form-group">
@@ -187,22 +202,8 @@ export const MasterPaymentEngineTab: React.FC<MasterPaymentEngineTabProps> = ({ 
               </div>
               <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div><strong style={{ display: 'block', fontSize: '0.95rem' }}>Automated Gateway Failover Circuit</strong><span style={{ fontSize: '0.8rem', color: '#666' }}>Automatically route payment traffic to secondary provider if primary fails.</span></div>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={!!form.enableMultiGatewayFallback} onChange={(e) => setForm({...form, enableMultiGatewayFallback: e.target.checked })} style={{ width: '18px', height: '18px' }} />
-                    <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{form.enableMultiGatewayFallback? 'Active' : 'Inactive'}</span>
-                  </label>
+                  <div><strong style={{ display: 'block', fontSize: '0.95rem' }}>Gateway failover unavailable</strong><span style={{ fontSize: '0.8rem', color: '#666' }}>Only Paystack checkout is currently implemented; no alternate provider is configured.</span></div>
                 </div>
-                {form.enableMultiGatewayFallback && (
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Secondary / Fallback Gateway Provider</label>
-                    <select className="form-select" value={form.fallbackGateway} onChange={(e) => setForm({...form, fallbackGateway: e.target.value as any })}>
-                      <option value="flutterwave">Flutterwave Fallback</option>
-                      <option value="hubtel">Hubtel MoMo Fallback</option>
-                      <option value="none">No Secondary Fallback</option>
-                    </select>
-                  </div>
-                )}
               </div>
             </div>
 
@@ -213,27 +214,10 @@ export const MasterPaymentEngineTab: React.FC<MasterPaymentEngineTabProps> = ({ 
                   <label className="form-label">Master Public API Key</label>
                   <input type="text" className="form-input" value={form.masterPublicKey || ''} onChange={(e) => setForm({...form, masterPublicKey: e.target.value })} style={{ fontFamily: 'monospace', fontSize: '0.85rem' }} />
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Master Secret API Key</label>
-                  <div style={{ position: 'relative' }}>
-                    <input type={showSecretKey? 'text' : 'password'} className="form-input" value={form.masterSecretKey || ''} onChange={(e) => setForm({...form, masterSecretKey: e.target.value })} style={{ fontFamily: 'monospace', fontSize: '0.85rem', paddingRight: '2.5rem' }} />
-                    <button type="button" onClick={() => setShowSecretKey(!showSecretKey)} style={{ position: 'absolute', right: '10px', top: '12px', background: 'transparent', color: '#666' }}>{showSecretKey? <EyeOff size={16} /> : <Eye size={16} />}</button>
-                  </div>
-                </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Global Webhook Endpoint URL</label>
-                  <input type="text" className="form-input" value={form.webhookUrl || ''} onChange={(e) => setForm({...form, webhookUrl: e.target.value })} style={{ fontFamily: 'monospace', fontSize: '0.85rem' }} />
-                </div>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Webhook Secret Signature (HMAC)</label>
-                  <div style={{ position: 'relative' }}>
-                    <input type={showWebhookSecret? 'text' : 'password'} className="form-input" value={form.webhookSecret || ''} onChange={(e) => setForm({...form, webhookSecret: e.target.value })} style={{ fontFamily: 'monospace', fontSize: '0.85rem', paddingRight: '2.5rem' }} />
-                    <button type="button" onClick={() => setShowWebhookSecret(!showWebhookSecret)} style={{ position: 'absolute', right: '10px', top: '12px', background: 'transparent', color: '#666' }}>{showWebhookSecret? <EyeOff size={16} /> : <Eye size={16} />}</button>
-                  </div>
-                </div>
-              </div>
+              <p style={{ color: '#475569', fontSize: '0.85rem', margin: 0 }}>
+                Configure PAYSTACK_SECRET_KEY as a server-only Vercel Environment Variable. Never enter it in the browser.
+              </p>
             </div>
 
             <div className="card" style={{ marginBottom: '2rem' }}>
@@ -337,8 +321,8 @@ export const MasterPaymentEngineTab: React.FC<MasterPaymentEngineTabProps> = ({ 
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
-              <button type="submit" className="btn-gold" style={{ padding: '0.85rem 2.5rem', fontSize: '1rem' }}>
-                <Save size={18} /> Save Master Payment Config
+              <button type="submit" className="btn-gold" disabled={saving} style={{ padding: '0.85rem 2.5rem', fontSize: '1rem' }}>
+                <Save size={18} /> {saving ? 'Saving...' : 'Save Master Payment Config'}
               </button>
             </div>
           </form>

@@ -51,8 +51,8 @@ export const PaystackModal: React.FC<PaystackModalProps> = ({ isOpen, onClose, s
       amount: totalAmount,
       currency: group?.currency || 'GHS',
       ref: generatedRef,
-      onSuccess: (res: any) => {
-        processPayment(currentMember.id, selectedDates, 'paystack', res.reference);
+      onSuccess: async (res: any) => {
+        await processPayment(currentMember.id, selectedDates, 'paystack', res.reference);
         setProcessing(false);
         setCompleted(true);
       },

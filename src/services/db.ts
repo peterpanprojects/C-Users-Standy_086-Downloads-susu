@@ -215,14 +215,11 @@ export const DatabaseService = {
             gatewayStatus: cfg.gatewayStatus || 'active',
             storeCheckoutType: cfg.storeCheckoutType || 'Direct online payments',
             publicKey: cfg.publicKey || cfg.masterPublicKey || '',
-            secretKey: cfg.secretKey || cfg.masterSecretKey || '',
             enableDirectStoreProcessing: cfg.enableDirectStoreProcessing ?? true,
             minResellerTopUp: cfg.minResellerTopUp ?? 10,
             activeGateway: cfg.provider || 'paystack',
             environment: cfg.environment || (cfg.paymentMode as any) || 'live',
             masterPublicKey: cfg.masterPublicKey || cfg.publicKey || '',
-            masterSecretKey: cfg.masterSecretKey || cfg.secretKey || '',
-            webhookSecret: cfg.webhookSecret || '',
             webhookUrl: cfg.webhookUrl || '',
             enableMultiGatewayFallback: false,
             fallbackGateway: 'none',
@@ -315,6 +312,36 @@ export const DatabaseService = {
       } catch (err) { console.error('Supabase load failed:', err); }
     }
     return { group: null, groups: [], members: [], payments: [], posts: [], agentAccount: null, agents: [], agentPaymentConfig: null, platformPaymentConfig: null, liveSupportConfig: null, notifications: [] };
+  },
+
+  async savePlatformPaymentConfig(config: SuperAdminPaymentConfig): Promise<void> {
+    if (!supabase) throw new Error('Supabase is not configured.');
+    const publicConfig = {
+      ...config,
+      publicKey: config.masterPublicKey || config.publicKey || '',
+      masterPublicKey: config.masterPublicKey || config.publicKey || ''
+    };
+    const { error } = await supabase
+      .from('payment_configs')
+      .upsert({ entity_type: 'super_admin', config: publicConfig }, { onConflict: 'entity_type' });
+    if (error) throw new Error(`Failed to save payment configuration: ${error.message}`);
+  },
+
+  async savePayments(payments: DailyPayment[]): Promise<void> {
+    if (!supabase) throw new Error('Supabase is not configured.');
+    if (!payments.length) return;
+    const { error } = await supabase.from('daily_payments').upsert(payments.map(payment => ({
+      id: payment.id,
+      group_id: payment.groupId,
+      member_id: payment.memberId,
+      payment_date: payment.paymentDate,
+      amount: payment.amount,
+      status: payment.status,
+      payment_method: payment.paymentMethod,
+      paystack_reference: payment.paystackReference || null,
+      paid_at: payment.paidAt || null
+    })), { onConflict: 'id' });
+    if (error) throw new Error(`Failed to save payment: ${error.message}`);
   },
 
   async getAgentKyc(agentId: string) {
@@ -433,9 +460,7 @@ export const DatabaseService = {
             paymentMode: cfg.paymentMode,
             gatewayStatus: cfg.gatewayStatus,
             publicKey: cfg.masterPublicKey || cfg.publicKey,
-            secretKey: cfg.masterSecretKey || cfg.secretKey,
             masterPublicKey: cfg.masterPublicKey || cfg.publicKey,
-            masterSecretKey: cfg.masterSecretKey || cfg.secretKey,
             environment: cfg.environment,
             platformTreasuryAccount: cfg.platformTreasuryAccount,
             globalPlatformFeePercent: cfg.globalPlatformFeePercent,

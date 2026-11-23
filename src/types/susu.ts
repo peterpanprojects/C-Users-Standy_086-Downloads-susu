@@ -46,8 +46,6 @@ export interface AgentPaymentConfig {
   gatewayStatus: 'active' | 'inactive';
   storeCheckoutType: string;
   publicKey: string;
-  secretKey: string;
-  webhookSecret: string;
   enableDirectStoreProcessing: boolean;
   minResellerTopUp: number; // in GHS
 
@@ -79,15 +77,12 @@ export interface SuperAdminPaymentConfig {
   gatewayStatus?: 'active' | 'inactive';
   storeCheckoutType?: string;
   publicKey?: string;
-  secretKey?: string;
   enableDirectStoreProcessing?: boolean;
   minResellerTopUp?: number;
 
   activeGateway: 'paystack' | 'flutterwave' | 'hubtel' | 'stripe';
   environment: 'test' | 'live';
   masterPublicKey: string;
-  masterSecretKey: string;
-  webhookSecret: string;
   webhookUrl: string;
   enableMultiGatewayFallback: boolean;
   fallbackGateway: 'flutterwave' | 'hubtel' | 'none';

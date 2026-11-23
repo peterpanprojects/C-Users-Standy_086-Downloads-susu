@@ -2,8 +2,6 @@ import React, { useState } from 'react';
 import { useSusu } from '../../context/SusuContext';
 import {
   Settings,
-  Eye,
-  EyeOff,
   Save,
   CheckCircle2,
   Users,
@@ -30,9 +28,7 @@ export const PaymentGatewayConfigForm: React.FC<PaymentGatewayConfigFormProps> =
   // Pick initial config based on role
   const sourceConfig = isSuperAdmin ? platformPaymentConfig : agentPaymentConfig;
 
-  const [provider, setProvider] = useState<'paystack' | 'mooire' | 'hubtel' | 'flutterwave'>(
-    (sourceConfig as any).provider || 'paystack'
-  );
+  const [provider, setProvider] = useState<'paystack'>('paystack');
   const [paymentMode, setPaymentMode] = useState<'test' | 'live'>(
     (sourceConfig as any).paymentMode || (isSuperAdmin ? platformPaymentConfig.environment : 'test')
   );
@@ -48,39 +44,31 @@ export const PaymentGatewayConfigForm: React.FC<PaymentGatewayConfigFormProps> =
       import.meta.env.VITE_PAYSTACK_PUBLIC_KEY ||
       ''
   );
-  const [secretKey, setSecretKey] = useState(
-    (sourceConfig as any).secretKey ||
-      (isSuperAdmin ? platformPaymentConfig.masterSecretKey : agentPaymentConfig.secretKey) ||
-      import.meta.env.VITE_PAYSTACK_SECRET_KEY ||
-      ''
-  );
-  const [webhookSecret, setWebhookSecret] = useState(
-    (sourceConfig as any).webhookSecret || ''
-  );
   const [enableDirectStoreProcessing, setEnableDirectStoreProcessing] = useState<boolean>(
     (sourceConfig as any).enableDirectStoreProcessing ?? true
   );
   const [minResellerTopUp, setMinResellerTopUp] = useState<string>(
     ((sourceConfig as any).minResellerTopUp ?? 10).toFixed(2)
   );
-  const [showSecretKey, setShowSecretKey] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   React.useEffect(() => {
     const src = isSuperAdmin ? platformPaymentConfig : agentPaymentConfig;
-    setProvider((src as any).provider || 'paystack');
+    setProvider('paystack');
     setPaymentMode((src as any).paymentMode || (isSuperAdmin ? platformPaymentConfig.environment : 'test'));
     setGatewayStatus((src as any).gatewayStatus || 'active');
     setStoreCheckoutType((src as any).storeCheckoutType || 'Direct online payments');
     setPublicKey((src as any).publicKey || (isSuperAdmin ? platformPaymentConfig.masterPublicKey : agentPaymentConfig.publicKey) || import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '');
-    setSecretKey((src as any).secretKey || (isSuperAdmin ? platformPaymentConfig.masterSecretKey : agentPaymentConfig.secretKey) || import.meta.env.VITE_PAYSTACK_SECRET_KEY || '');
-    setWebhookSecret((src as any).webhookSecret || '');
     setEnableDirectStoreProcessing((src as any).enableDirectStoreProcessing ?? true);
     setMinResellerTopUp(((src as any).minResellerTopUp ?? 10).toFixed(2));
   }, [isSuperAdmin, platformPaymentConfig, agentPaymentConfig]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSaving(true);
+    setSaveError(null);
 
     const payload = {
       provider,
@@ -88,40 +76,46 @@ export const PaymentGatewayConfigForm: React.FC<PaymentGatewayConfigFormProps> =
       gatewayStatus,
       storeCheckoutType,
       publicKey,
-      secretKey,
-      webhookSecret,
       enableDirectStoreProcessing,
       minResellerTopUp: parseFloat(minResellerTopUp) || 10.0
     };
 
-    if (isSuperAdmin) {
-      updatePlatformPaymentConfig({
-        ...payload,
-        activeGateway: provider as any,
-        environment: paymentMode,
-        masterPublicKey: publicKey,
-        masterSecretKey: secretKey,
-        webhookSecret
-      });
-      if (onAddSystemLog) {
-        onAddSystemLog({
-          id: `log-${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          level: 'security',
-          message: `SUPER ADMIN UPDATED MASTER GATEWAY: Provider=${provider.toUpperCase()}, Mode=${paymentMode.toUpperCase()}, DirectStoreProcessing=${enableDirectStoreProcessing}`,
-          source: 'super-admin-payment-config'
+    try {
+      if (isSuperAdmin) {
+        await updatePlatformPaymentConfig({
+          ...payload,
+          activeGateway: provider as any,
+          environment: paymentMode,
+          masterPublicKey: publicKey
         });
+        if (onAddSystemLog) {
+          onAddSystemLog({
+            id: `log-${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            level: 'security',
+            message: `SUPER ADMIN UPDATED MASTER GATEWAY: Provider=${provider.toUpperCase()}, Mode=${paymentMode.toUpperCase()}, DirectStoreProcessing=${enableDirectStoreProcessing}`,
+            source: 'super-admin-payment-config'
+          });
+        }
+      } else {
+        updateAgentPaymentConfig(payload);
       }
-    } else {
-      updateAgentPaymentConfig(payload);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3500);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Unable to save payment configuration.');
+    } finally {
+      setSaving(false);
     }
-
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3500);
   };
 
   return (
     <div>
+      {saveError && (
+        <div role="alert" style={{ background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem' }}>
+          {saveError}
+        </div>
+      )}
       {/* Success Notification */}
       {saved && (
         <div
@@ -201,24 +195,15 @@ export const PaymentGatewayConfigForm: React.FC<PaymentGatewayConfigFormProps> =
             <select
               className="payment-field-input payment-field-select"
               value={provider}
-              onChange={(e) => setProvider(e.target.value as any)}
+              onChange={() => setProvider('paystack')}
             >
               <option value="paystack">Paystack</option>
-              <option value="mooire">Mooire</option>
-              <option value="hubtel">Hubtel</option>
-              <option value="flutterwave">Flutterwave</option>
             </select>
           </div>
 
           {/* Informative Blue Callout Box */}
           <div className="payment-info-box">
-            {provider === 'paystack'
-              ? 'Use your Paystack keys here when you want store buyers to pay through your own Paystack account.'
-              : provider === 'mooire'
-              ? 'Use your Mooire credentials here when you want store buyers to pay through your own Mooire merchant account.'
-              : provider === 'hubtel'
-              ? 'Use your Hubtel credentials here when you want store buyers to pay through your own Hubtel merchant account.'
-              : 'Use your Flutterwave public and secret keys here for direct payment processing.'}
+            Paystack is the currently supported checkout provider. Configure its public key here; its secret key must be set as the server-only PAYSTACK_SECRET_KEY environment variable in Vercel.
           </div>
 
           {/* Public Key */}
@@ -234,55 +219,6 @@ export const PaymentGatewayConfigForm: React.FC<PaymentGatewayConfigFormProps> =
             <div className="payment-field-help">
               Used only when {provider.charAt(0).toUpperCase() + provider.slice(1)} is the selected provider.
             </div>
-          </div>
-
-          {/* Secret Key with Mask & Toggle */}
-          <div className="payment-form-group">
-            <label className="payment-field-label">Secret Key</label>
-            <div style={{ position: 'relative' }}>
-              <input
-                type={showSecretKey ? 'text' : 'password'}
-                className="payment-field-input"
-                value={secretKey}
-                onChange={(e) => setSecretKey(e.target.value)}
-                style={{ paddingRight: '2.75rem' }}
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowSecretKey(!showSecretKey)}
-                style={{
-                  position: 'absolute',
-                  right: '12px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#94a3b8',
-                  cursor: 'pointer',
-                  padding: 0,
-                  display: 'flex',
-                  alignItems: 'center'
-                }}
-                title={showSecretKey ? 'Hide secret key' : 'Show secret key'}
-              >
-                {showSecretKey ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-            <div className="payment-field-help">
-              Keep this secret. It is used only for your store payment verification.
-            </div>
-          </div>
-
-          {/* Webhook Secret (Optional) */}
-          <div className="payment-form-group">
-            <label className="payment-field-label">Webhook Secret (Optional)</label>
-            <input
-              type="text"
-              className="payment-field-input"
-              value={webhookSecret}
-              onChange={(e) => setWebhookSecret(e.target.value)}
-            />
           </div>
 
           {/* Payment Mode (Radio Buttons) */}
@@ -362,8 +298,8 @@ export const PaymentGatewayConfigForm: React.FC<PaymentGatewayConfigFormProps> =
           </div>
 
           {/* Save Configuration Button */}
-          <button type="submit" className="btn-save-payment-config">
-            <Save size={18} /> Save Configuration
+          <button type="submit" className="btn-save-payment-config" disabled={saving}>
+            <Save size={18} /> {saving ? 'Saving...' : 'Save Configuration'}
           </button>
         </form>
       </div>
@@ -378,7 +314,7 @@ export const PaymentGatewayConfigForm: React.FC<PaymentGatewayConfigFormProps> =
         <div className="setup-note-block blue-accent">
           <h4 className="setup-note-title">Paystack</h4>
           <p className="setup-note-text">
-            Use your own Paystack public and secret keys if you want store customers to pay into your Paystack account.
+            Use a Paystack public key for checkout. Keep the secret key in Vercel Environment Variables as PAYSTACK_SECRET_KEY.
           </p>
         </div>
 

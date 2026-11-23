@@ -16,6 +16,7 @@ import {
   FileCheck
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { verifyPaystackTransaction } from '../../utils/paystack';
 
 interface AgentActivationPageProps {
   onNavigate: (path: string) => void;
@@ -56,10 +57,7 @@ export const AgentActivationPage: React.FC<AgentActivationPageProps> = ({ onNavi
     return valid || '';
   };
   
-    const PAYSTACK_PUBLIC_KEY = platformPaymentConfig.masterPublicKey 
-                           || platformPaymentConfig.publicKey
-                           || import.meta.env.VITE_PAYSTACK_PUBLIC_KEY
-                           || '';
+    const PAYSTACK_PUBLIC_KEY = getValidPaystackKey();
   // Load Paystack LIVE script
   useEffect(() => {
     if (!window.PaystackPop) {
@@ -68,7 +66,6 @@ export const AgentActivationPage: React.FC<AgentActivationPageProps> = ({ onNavi
       script.async = true;
       document.body.appendChild(script);
     }
-    console.log('🔑 Activation Key Check:', PAYSTACK_PUBLIC_KEY ? PAYSTACK_PUBLIC_KEY.substring(0,25)+'...' : 'NO KEY!', 'Full config:', platformPaymentConfig);
   }, [PAYSTACK_PUBLIC_KEY, platformPaymentConfig]);
 
   const handlePayActivation = (e: React.FormEvent) => {
@@ -105,9 +102,10 @@ export const AgentActivationPage: React.FC<AgentActivationPageProps> = ({ onNavi
         setProcessing(false);
       },
       callback: async (response: any) => {
-        setProcessing(false);
         try {
+          await verifyPaystackTransaction(response.reference, feeAmount, 'GHS');
           await activateAgentAccount(paymentMethod, response.reference);
+          setProcessing(false);
           setActivated(true);
           confetti({
             particleCount: 150,
@@ -115,8 +113,9 @@ export const AgentActivationPage: React.FC<AgentActivationPageProps> = ({ onNavi
             origin: { y: 0.6 }
           });
         } catch (error) {
-          console.error('Activation payment succeeded but account update failed:', error);
-          alert('Payment succeeded, but activation could not be saved. Do not pay again; contact support with your reference: ' + response.reference);
+          setProcessing(false);
+          console.error('Unable to verify or activate account after Paystack callback:', error);
+          alert((error instanceof Error ? error.message : 'Payment verification or activation failed.') + ' Reference: ' + response.reference);
         }
       }
     });
