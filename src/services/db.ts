@@ -76,7 +76,10 @@ function saveAgentAccounts(agents: AgentAccount[], userIds: Record<string, strin
       const agentKycSubmitted = Boolean(agent.isKycSubmitted || hasSubmittedKyc(agent.kycData));
       const preserveExistingKyc = existingKycSubmitted && !agentKycSubmitted;
       const existingActivated = Boolean(existing?.is_activated || existing?.activation_paid_at || existing?.activation_tx_ref);
-      const existingApprovalVerified = existing?.admin_approval_status === 'verified';
+      const existingReviewStatus = ['verified', 'rejected'].includes(existing?.admin_approval_status)
+        ? existing.admin_approval_status
+        : null;
+      const preserveExistingReview = Boolean(existingReviewStatus && agent.adminApprovalStatus !== existingReviewStatus);
 
       return {
         id: agent.id,
@@ -91,9 +94,9 @@ function saveAgentAccounts(agents: AgentAccount[], userIds: Record<string, strin
         activation_fee_amount: agent.activationFeeAmount,
         activation_paid_at: agent.activationPaidAt || existing?.activation_paid_at,
         activation_tx_ref: agent.activationTxRef || existing?.activation_tx_ref,
-        admin_approval_status: existingApprovalVerified ? 'verified' : agent.adminApprovalStatus,
-        admin_approved_at: existingApprovalVerified ? existing.admin_approved_at : (agent.adminApprovedAt || existing?.admin_approved_at),
-        admin_review_notes: existingApprovalVerified ? existing.admin_review_notes : (agent.adminReviewNotes || existing?.admin_review_notes),
+        admin_approval_status: preserveExistingReview ? existingReviewStatus : agent.adminApprovalStatus,
+        admin_approved_at: preserveExistingReview ? existing.admin_approved_at : (agent.adminApprovedAt || existing?.admin_approved_at),
+        admin_review_notes: preserveExistingReview ? existing.admin_review_notes : (agent.adminReviewNotes || existing?.admin_review_notes),
         license_number: agent.licenseNumber || '',
         ...((preserveExistingKyc ? existing.kyc_data : agent.kycData || existing?.kyc_data)
           ? { kyc_data: preserveExistingKyc ? existing.kyc_data : agent.kycData || existing?.kyc_data }
@@ -292,6 +295,46 @@ export const DatabaseService = {
       .single();
     if (error) throw new Error(`Failed to load agent account: ${error.message}`);
     return mapAgentAccount(data);
+  },
+
+  async setAgentKycReview(
+    agentId: string,
+    status: 'verified' | 'rejected',
+    notes: string
+  ): Promise<AgentAccount> {
+    if (!supabase) throw new Error('Supabase is not configured.');
+    const write = agentWriteQueue.then(async (): Promise<AgentAccount> => {
+      const { data: currentRow, error: fetchError } = await supabase
+        .from('agent_accounts')
+        .select('*')
+        .eq('id', agentId)
+        .single();
+      if (fetchError) throw new Error(`Failed to load agent account: ${fetchError.message}`);
+      const agent = mapAgentAccount(currentRow);
+      if (!agent.isKycSubmitted) throw new Error('This agent has not submitted KYC yet.');
+
+      const licenseNumber = status === 'verified'
+        ? agent.licenseNumber && !agent.licenseNumber.includes('Pending')
+          ? agent.licenseNumber
+          : `SUSU-AGT-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
+        : agent.licenseNumber || '';
+      const { data, error } = await supabase
+        .from('agent_accounts')
+        .update({
+          is_kyc_submitted: true,
+          admin_approval_status: status,
+          admin_approved_at: status === 'verified' ? new Date().toISOString() : null,
+          admin_review_notes: notes,
+          license_number: licenseNumber
+        })
+        .eq('id', agentId)
+        .select('*')
+        .single();
+      if (error) throw new Error(`Failed to save KYC ${status} decision: ${error.message}`);
+      return mapAgentAccount(data);
+    });
+    agentWriteQueue = write.then(() => undefined, () => undefined);
+    return write;
   },
 
   async saveAgentAccount(agent: AgentAccount, userId?: string): Promise<void> {

@@ -1887,19 +1887,8 @@ const renderDocumentPreview = (label: string, src?: string) => {
           setDossierAgent(null);
         }}
         agent={dossierAgent}
-        onApprove={async (agentId, notes) => {
-          try {
-            await approveAgentKyc(agentId, notes);
-            alert(`KYC approved and Agent License issued!`);
-          } catch (error) {
-            console.error('Agent approval failed:', error);
-            alert(error instanceof Error ? error.message : 'Unable to approve agent.');
-          }
-        }}
-        onReject={(agentId, reason) => {
-          rejectAgentKyc(agentId, reason);
-          alert(`KYC application rejected with compliance notice.`);
-        }}
+        onApprove={(agentId, notes) => approveAgentKyc(agentId, notes)}
+        onReject={(agentId, reason) => rejectAgentKyc(agentId, reason)}
       />
 
       {/* Fullscreen Document Lightbox */}

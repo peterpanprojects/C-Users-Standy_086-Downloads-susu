@@ -76,7 +76,7 @@ export interface SusuContextType {
   registerAgentKyc: (kycData: AgentKycData) => Promise<void>;
   activateAgentAccount: (paymentMethod: string, txRef: string) => Promise<void>;
   approveAgentKyc: (agentId: string, notes?: string) => Promise<void>;
-  rejectAgentKyc: (agentId: string, reason: string) => void;
+  rejectAgentKyc: (agentId: string, reason: string) => Promise<void>;
   updateAgentAccount: (agentIdOrPartial: string | Partial<AgentAccount>, partial?: Partial<AgentAccount>) => void;
   updateAgentKyc: (agentIdOrKyc: string | Partial<AgentKycData>, kycData?: Partial<AgentKycData>) => void;
   deleteAgent: (agentIdOrOptions?: string | { resetGroup?: boolean }, options?: { resetGroup?: boolean }) => void;
@@ -966,7 +966,9 @@ const createAgent = async (data: Partial<AgentAccount>, password: string): Promi
       isActivated: true,
       activationPaidAt: new Date().toISOString(),
       activationTxRef: txRef,
-      adminApprovalStatus: 'pending_admin_approval' as const,
+      adminApprovalStatus: agent.adminApprovalStatus === 'verified' || agent.adminApprovalStatus === 'rejected'
+        ? agent.adminApprovalStatus
+        : 'pending_admin_approval' as const,
       licenseNumber: agent.licenseNumber && !agent.licenseNumber.includes('Pending')
         ? agent.licenseNumber
         : `SUSU-AGT-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
@@ -976,31 +978,17 @@ const createAgent = async (data: Partial<AgentAccount>, password: string): Promi
   };
 
   const approveAgentKyc = async (agentId: string, notes?: string) => {
-    const agent = await DatabaseService.getAgentAccount(agentId);
-    if (!agent.isKycSubmitted && !agent.kycData?.submittedAt) {
-      throw new Error('This agent has not submitted KYC yet.');
-    }
-    const updatedAgent = {
-      ...agent,
-      isKycSubmitted: true,
-      adminApprovalStatus: 'verified' as const,
-      adminApprovedAt: new Date().toISOString(),
-      adminReviewNotes: notes || 'KYC verified and approved by Admin.',
-      licenseNumber: agent.licenseNumber && !agent.licenseNumber.includes('Pending')
-        ? agent.licenseNumber
-        : `SUSU-AGT-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
-    };
-    setAgents(prev => prev.map(a => a.id === agentId ? updatedAgent : a));
-    await DatabaseService.saveAgentAccount(updatedAgent);
+    const updatedAgent = await DatabaseService.setAgentKycReview(
+      agentId,
+      'verified',
+      notes || 'KYC verified and approved by Admin.'
+    );
+    setAgents(prev => [updatedAgent, ...prev.filter(a => a.id !== agentId)]);
   };
 
-  const rejectAgentKyc = (agentId: string, reason: string) => {
-    setAgents(prev => prev.map(a => {
-      if (a.id === agentId) {
-        return {...a, adminApprovalStatus: 'rejected', adminReviewNotes: reason };
-      }
-      return a;
-    }));
+  const rejectAgentKyc = async (agentId: string, reason: string) => {
+    const updatedAgent = await DatabaseService.setAgentKycReview(agentId, 'rejected', reason);
+    setAgents(prev => [updatedAgent, ...prev.filter(a => a.id !== agentId)]);
   };
 
   const updateAgentAccount = (agentIdOrPartial: string | Partial<AgentAccount>, partial?: Partial<AgentAccount>) => {

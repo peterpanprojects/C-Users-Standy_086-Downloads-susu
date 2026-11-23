@@ -32,8 +32,8 @@ interface KycDossierModalProps {
   isOpen: boolean;
   onClose: () => void;
   agent: AgentAccount | null;
-  onApprove: (agentId: string, notes?: string) => void;
-  onReject: (agentId: string, reason: string) => void;
+  onApprove: (agentId: string, notes?: string) => Promise<void>;
+  onReject: (agentId: string, reason: string) => Promise<void>;
 }
 
 export const KycDossierModal: React.FC<KycDossierModalProps> = ({
@@ -52,6 +52,8 @@ export const KycDossierModal: React.FC<KycDossierModalProps> = ({
   const [showRejectForm, setShowRejectForm] = useState(false);
   const [rejectReason, setRejectReason] = useState('Ghana Card front or back image is blurry or illegible.');
   const [customRejectReason, setCustomRejectReason] = useState('');
+  const [isSavingDecision, setIsSavingDecision] = useState(false);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
 
   // Checklist state
   const [checklist, setChecklist] = useState({
@@ -86,20 +88,36 @@ export const KycDossierModal: React.FC<KycDossierModalProps> = ({
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  const handleApprove = () => {
-    onApprove(agent.id, approvalNotes);
-    onClose();
+  const handleApprove = async () => {
+    setIsSavingDecision(true);
+    setDecisionError(null);
+    try {
+      await onApprove(agent.id, approvalNotes);
+      onClose();
+    } catch (error) {
+      setDecisionError(error instanceof Error ? error.message : 'Unable to save the KYC approval.');
+    } finally {
+      setIsSavingDecision(false);
+    }
   };
 
-  const handleReject = () => {
+  const handleReject = async () => {
     const finalReason = rejectReason === 'Other' ? customRejectReason : rejectReason;
     if (!finalReason.trim()) {
       alert('Please specify a rejection reason.');
       return;
     }
-    onReject(agent.id, finalReason);
-    setShowRejectForm(false);
-    onClose();
+    setIsSavingDecision(true);
+    setDecisionError(null);
+    try {
+      await onReject(agent.id, finalReason);
+      setShowRejectForm(false);
+      onClose();
+    } catch (error) {
+      setDecisionError(error instanceof Error ? error.message : 'Unable to save the KYC rejection.');
+    } finally {
+      setIsSavingDecision(false);
+    }
   };
 
   const renderDocumentCard = (label: string, src?: string, badge?: string) => {
@@ -587,6 +605,12 @@ export const KycDossierModal: React.FC<KycDossierModalProps> = ({
             </div>
           </div>
 
+          {decisionError && (
+            <div role="alert" style={{ color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '0.75rem', marginBottom: '1rem' }}>
+              {decisionError}
+            </div>
+          )}
+
           {/* REJECTION REASON BOX (If showRejectForm is active) */}
           {showRejectForm && (
             <div
@@ -635,6 +659,7 @@ export const KycDossierModal: React.FC<KycDossierModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowRejectForm(false)}
+                  disabled={isSavingDecision}
                   style={{
                     padding: '0.45rem 0.95rem',
                     background: '#fff',
@@ -650,6 +675,7 @@ export const KycDossierModal: React.FC<KycDossierModalProps> = ({
                 <button
                   type="button"
                   onClick={handleReject}
+                  disabled={isSavingDecision}
                   style={{
                     padding: '0.45rem 1.25rem',
                     background: '#dc2626',
@@ -661,7 +687,7 @@ export const KycDossierModal: React.FC<KycDossierModalProps> = ({
                     cursor: 'pointer'
                   }}
                 >
-                  Confirm KYC Rejection
+                  {isSavingDecision ? 'Saving...' : 'Confirm KYC Rejection'}
                 </button>
               </div>
             </div>
@@ -709,6 +735,7 @@ export const KycDossierModal: React.FC<KycDossierModalProps> = ({
             <button
               type="button"
               onClick={onClose}
+              disabled={isSavingDecision}
               className="btn-outline"
               style={{ fontSize: '0.85rem', padding: '0.55rem 1.2rem' }}
             >
@@ -721,6 +748,7 @@ export const KycDossierModal: React.FC<KycDossierModalProps> = ({
               <button
                 type="button"
                 onClick={() => setShowRejectForm(true)}
+                disabled={isSavingDecision}
                 style={{
                   background: '#fee2e2',
                   color: '#dc2626',
@@ -740,6 +768,7 @@ export const KycDossierModal: React.FC<KycDossierModalProps> = ({
               <button
                 type="button"
                 onClick={handleApprove}
+                disabled={isSavingDecision}
                 className="btn-primary"
                 style={{
                   padding: '0.55rem 1.5rem',
@@ -750,7 +779,7 @@ export const KycDossierModal: React.FC<KycDossierModalProps> = ({
                   gap: '0.4rem'
                 }}
               >
-                <CheckCircle2 size={16} /> Approve KYC &amp; Grant License
+                <CheckCircle2 size={16} /> {isSavingDecision ? 'Saving...' : 'Approve KYC &amp; Grant License'}
               </button>
             )}
 
