@@ -41,6 +41,59 @@ export function mapAgentAccount(row: any): AgentAccount {
   };
 }
 
+let agentWriteQueue: Promise<void> = Promise.resolve();
+
+function saveAgentAccounts(agents: AgentAccount[], userIds: Record<string, string> = {}): Promise<void> {
+  const write = agentWriteQueue.then(async () => {
+    if (!supabase) throw new Error('Supabase is not configured.');
+    if (!agents.length) return;
+
+    const { data: existingRows, error: fetchError } = await supabase
+      .from('agent_accounts')
+      .select('id, user_id, is_kyc_submitted, is_activated, activation_paid_at, activation_tx_ref, admin_approval_status, admin_approved_at, admin_review_notes, kyc_data')
+      .in('id', agents.map(agent => agent.id));
+    if (fetchError) throw new Error(`Failed to check existing agent data: ${fetchError.message}`);
+
+    const existingById = new Map((existingRows || []).map((row: any) => [row.id, row]));
+    const rows = agents.map(agent => {
+      const existing = existingById.get(agent.id) as any;
+      const existingKycSubmitted = Boolean(existing?.is_kyc_submitted || existing?.kyc_data?.submittedAt);
+      const agentKycSubmitted = Boolean(agent.isKycSubmitted || agent.kycData?.submittedAt);
+      const preserveExistingKyc = existingKycSubmitted && !agentKycSubmitted;
+      const existingActivated = Boolean(existing?.is_activated || existing?.activation_paid_at || existing?.activation_tx_ref);
+      const existingApprovalVerified = existing?.admin_approval_status === 'verified';
+
+      return {
+        id: agent.id,
+        user_id: userIds[agent.id] || existing?.user_id,
+        first_name: agent.firstName,
+        surname: agent.surname,
+        email: agent.email,
+        phone: agent.phone,
+        is_otp_verified: agent.isOtpVerified,
+        is_kyc_submitted: agentKycSubmitted || existingKycSubmitted,
+        is_activated: Boolean(agent.isActivated || existingActivated),
+        activation_fee_amount: agent.activationFeeAmount,
+        activation_paid_at: agent.activationPaidAt || existing?.activation_paid_at,
+        activation_tx_ref: agent.activationTxRef || existing?.activation_tx_ref,
+        admin_approval_status: existingApprovalVerified ? 'verified' : agent.adminApprovalStatus,
+        admin_approved_at: existingApprovalVerified ? existing.admin_approved_at : (agent.adminApprovedAt || existing?.admin_approved_at),
+        admin_review_notes: existingApprovalVerified ? existing.admin_review_notes : (agent.adminReviewNotes || existing?.admin_review_notes),
+        license_number: agent.licenseNumber || '',
+        ...((preserveExistingKyc ? existing.kyc_data : agent.kycData || existing?.kyc_data)
+          ? { kyc_data: preserveExistingKyc ? existing.kyc_data : agent.kycData || existing?.kyc_data }
+          : {})
+      };
+    });
+
+    const { error } = await supabase.from('agent_accounts').upsert(rows, { onConflict: 'id' });
+    if (error) throw new Error(`Failed to save agent accounts: ${error.message}`);
+  });
+
+  agentWriteQueue = write.then(() => undefined, () => undefined);
+  return write;
+}
+
 export function validateDatabaseIntegrity(state: Partial<DatabaseState>): { valid: boolean; error?: string } {
   if (state.group && state.group.fixedDailyAmount <= 0) return { valid: false, error: 'fixedDailyAmount must be > 0' };
   return { valid: true };
@@ -199,26 +252,7 @@ export const DatabaseService = {
 
   async saveAgentAccount(agent: AgentAccount, userId?: string): Promise<void> {
     if (!supabase) throw new Error('Supabase is not configured.');
-    const { error } = await supabase.from('agent_accounts').upsert({
-      id: agent.id,
-      ...(userId ? { user_id: userId } : {}),
-      first_name: agent.firstName,
-      surname: agent.surname,
-      email: agent.email,
-      phone: agent.phone,
-      is_otp_verified: agent.isOtpVerified,
-      is_kyc_submitted: agent.isKycSubmitted,
-      is_activated: agent.isActivated,
-      activation_fee_amount: agent.activationFeeAmount,
-      activation_paid_at: agent.activationPaidAt,
-      activation_tx_ref: agent.activationTxRef,
-      admin_approval_status: agent.adminApprovalStatus,
-      admin_approved_at: agent.adminApprovedAt,
-      admin_review_notes: agent.adminReviewNotes,
-      license_number: agent.licenseNumber,
-      ...(agent.kycData ? { kyc_data: agent.kycData } : {})
-    }, { onConflict: 'id' });
-    if (error) throw new Error(`Failed to save agent ${agent.email}: ${error.message}`);
+    await saveAgentAccounts([agent], userId ? { [agent.id]: userId } : {});
   },
 
   async persistState(state: DatabaseState): Promise<void> {
@@ -228,25 +262,7 @@ export const DatabaseService = {
     try {
       if (state.groups?.length) await supabase.from('susu_groups').upsert(state.groups.map(g => ({ id: g.id, name: g.name, agent_id: g.agentId, fixed_daily_amount: g.fixedDailyAmount, currency: g.currency, cycle_start_date: g.cycleStartDate, status: g.status, paystack_public_key: (g as any).paystackPublicKey || '' })), { onConflict: 'id' });
       if (state.agents?.length) {
-        const { error } = await supabase.from('agent_accounts').upsert(state.agents.map(a => ({
-          id: a.id,
-          first_name: a.firstName,
-          surname: a.surname,
-          email: a.email,
-          phone: a.phone,
-          is_otp_verified: a.isOtpVerified,
-          is_kyc_submitted: a.isKycSubmitted,
-          is_activated: a.isActivated,
-          activation_fee_amount: a.activationFeeAmount,
-          activation_paid_at: a.activationPaidAt,
-          activation_tx_ref: a.activationTxRef,
-          admin_approval_status: a.adminApprovalStatus,
-          admin_approved_at: a.adminApprovedAt,
-          admin_review_notes: a.adminReviewNotes,
-          license_number: a.licenseNumber,
-          ...(a.kycData ? { kyc_data: a.kycData } : {})
-        })), { onConflict: 'id' });
-        if (error) throw new Error(`Failed to save agents to Supabase: ${error.message}`);
+        await saveAgentAccounts(state.agents);
       }
       if (state.members?.length) await supabase.from('group_members').upsert(state.members.map(m => ({ id: m.id, group_id: m.groupId, user_id: m.userId, name: m.name, email: m.email, phone: m.phone, invite_status: m.inviteStatus, invite_token: m.inviteToken, unique_code: m.uniqueCode, joined_at: m.joinedAt, position_in_rotation: m.positionInRotation, reliability_score: (m as any).reliabilityScore || 100 })), { onConflict: 'id' });
       if (state.payments?.length) await supabase.from('daily_payments').upsert(state.payments.map(p => ({ id: p.id, group_id: p.groupId, member_id: p.memberId, payment_date: p.paymentDate, amount: p.amount, status: p.status, payment_method: p.paymentMethod, paystack_reference: p.paystackReference, paid_at: p.paidAt })), { onConflict: 'id' });
