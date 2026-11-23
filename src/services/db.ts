@@ -257,6 +257,7 @@ export const DatabaseService = {
               bankName: cfg.bankName || '',
               bankAccountNumber: cfg.bankAccountNumber || '',
               bankAccountName: cfg.bankAccountName || '',
+              allowPaystackOnline: cfg.allowPaystackOnline ?? true,
               agentCommissionPercent: cfg.agentCommissionPercent ?? 1.5,
               dailyCutoffTime: cfg.dailyCutoffTime || '',
             } as unknown as AgentPaymentConfig;
@@ -522,6 +523,7 @@ export const DatabaseService = {
         bankName: cfg.bankName || '',
         bankAccountNumber: cfg.bankAccountNumber || '',
         bankAccountName: cfg.bankAccountName || '',
+        allowPaystackOnline: cfg.allowPaystackOnline ?? true,
         agentCommissionPercent: cfg.agentCommissionPercent ?? 1.5,
         dailyCutoffTime: cfg.dailyCutoffTime || '',
         provider: 'paystack',
