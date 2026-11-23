@@ -961,8 +961,7 @@ const createAgent = async (data: Partial<AgentAccount>, password: string): Promi
   };
 
   const approveAgentKyc = async (agentId: string, notes?: string) => {
-    const agent = agents.find(a => a.id === agentId);
-    if (!agent) throw new Error('Agent account not found.');
+    const agent = await DatabaseService.getAgentAccount(agentId);
     if (!agent.isKycSubmitted && !agent.kycData?.submittedAt) {
       throw new Error('This agent has not submitted KYC yet.');
     }

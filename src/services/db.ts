@@ -186,6 +186,17 @@ export const DatabaseService = {
     return (data as any)?.kyc_data || null;
   },
 
+  async getAgentAccount(agentId: string): Promise<AgentAccount> {
+    if (!supabase) throw new Error('Supabase is not configured.');
+    const { data, error } = await supabase
+      .from('agent_accounts')
+      .select('*')
+      .eq('id', agentId)
+      .single();
+    if (error) throw new Error(`Failed to load agent account: ${error.message}`);
+    return mapAgentAccount(data);
+  },
+
   async saveAgentAccount(agent: AgentAccount, userId?: string): Promise<void> {
     if (!supabase) throw new Error('Supabase is not configured.');
     const { error } = await supabase.from('agent_accounts').upsert({
