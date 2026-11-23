@@ -18,6 +18,13 @@ export interface DatabaseState {
   agentMessages?: any[];
 }
 
+function hasSubmittedKyc(kycData: any): boolean {
+  return Boolean(
+    kycData?.submittedAt ||
+    (kycData?.fullName?.trim() && kycData?.idCardNumber?.trim() && kycData?.digitalAddress?.trim())
+  );
+}
+
 export function mapAgentAccount(row: any): AgentAccount {
   const kycData = row.kyc_data;
   return {
@@ -28,7 +35,7 @@ export function mapAgentAccount(row: any): AgentAccount {
     phone: row.phone || '',
     avatarUrl: row.avatar_url || '',
     isOtpVerified: Boolean(row.is_otp_verified),
-    isKycSubmitted: Boolean(row.is_kyc_submitted || kycData?.submittedAt),
+    isKycSubmitted: Boolean(row.is_kyc_submitted || hasSubmittedKyc(kycData)),
     isActivated: Boolean(row.is_activated || row.activation_paid_at || row.activation_tx_ref),
     activationFeeAmount: Number(row.activation_fee_amount || 150),
     activationPaidAt: row.activation_paid_at,
@@ -57,8 +64,8 @@ function saveAgentAccounts(agents: AgentAccount[], userIds: Record<string, strin
     const existingById = new Map((existingRows || []).map((row: any) => [row.id, row]));
     const rows = agents.map(agent => {
       const existing = existingById.get(agent.id) as any;
-      const existingKycSubmitted = Boolean(existing?.is_kyc_submitted || existing?.kyc_data?.submittedAt);
-      const agentKycSubmitted = Boolean(agent.isKycSubmitted || agent.kycData?.submittedAt);
+      const existingKycSubmitted = Boolean(existing?.is_kyc_submitted || hasSubmittedKyc(existing?.kyc_data));
+      const agentKycSubmitted = Boolean(agent.isKycSubmitted || hasSubmittedKyc(agent.kycData));
       const preserveExistingKyc = existingKycSubmitted && !agentKycSubmitted;
       const existingActivated = Boolean(existing?.is_activated || existing?.activation_paid_at || existing?.activation_tx_ref);
       const existingApprovalVerified = existing?.admin_approval_status === 'verified';
