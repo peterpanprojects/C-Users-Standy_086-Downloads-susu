@@ -950,12 +950,15 @@ const createAgent = async (data: Partial<AgentAccount>, password: string): Promi
       ...agent,
       kycData,
       isKycSubmitted: true,
+      adminApprovalStatus: 'pending_admin_approval' as const,
+      adminApprovedAt: undefined,
+      adminReviewNotes: undefined,
       licenseNumber: agent.licenseNumber && !agent.licenseNumber.includes('Pending')
         ? agent.licenseNumber
         : `SUSU-AGT-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
     };
-    setAgents(prev => prev.map(a => a.id === activeAgentId ? updatedAgent : a));
-    await DatabaseService.saveAgentAccount(updatedAgent);
+    const savedAgent = await DatabaseService.submitAgentKyc(updatedAgent);
+    setAgents(prev => prev.map(a => a.id === activeAgentId ? savedAgent : a));
   };
 
   const activateAgentAccount = async (_paymentMethod: string, txRef: string) => {

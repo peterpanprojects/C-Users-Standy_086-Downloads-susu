@@ -141,10 +141,38 @@ export const DatabaseService = {
     if (!supabase) throw new Error('Supabase is not configured.');
     const { data, error } = await supabase
       .from('agent_accounts')
-      .select('id, first_name, surname, email, phone, is_otp_verified, is_kyc_submitted, is_activated, activation_fee_amount, activation_paid_at, activation_tx_ref, admin_approval_status, admin_approved_at, admin_review_notes, license_number, kyc_data, created_at')
-      .order('created_at', { ascending: false });
+      .select('*');
     if (error) throw new Error(`Failed to load agent applications: ${error.message}`);
-    return (data || []).map(mapAgentAccount);
+    return (data || [])
+      .sort((a: any, b: any) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+      .map(mapAgentAccount);
+  },
+
+  async submitAgentKyc(agent: AgentAccount): Promise<AgentAccount> {
+    if (!supabase) throw new Error('Supabase is not configured.');
+    const write = agentWriteQueue.then(async (): Promise<AgentAccount> => {
+      const { data, error } = await supabase
+        .from('agent_accounts')
+        .update({
+          is_kyc_submitted: true,
+          kyc_data: agent.kycData,
+          admin_approval_status: 'pending_admin_approval',
+          admin_approved_at: null,
+          admin_review_notes: null,
+          license_number: agent.licenseNumber || ''
+        })
+        .eq('id', agent.id)
+        .select('*')
+        .single();
+      if (error) throw new Error(`Failed to save KYC submission: ${error.message}`);
+      const savedAgent = mapAgentAccount(data);
+      if (!savedAgent.isKycSubmitted) {
+        throw new Error('Supabase did not confirm the KYC submission. Please retry.');
+      }
+      return savedAgent;
+    });
+    agentWriteQueue = write.then(() => undefined, () => undefined);
+    return write;
   },
 
   async loadState(): Promise<DatabaseState> {

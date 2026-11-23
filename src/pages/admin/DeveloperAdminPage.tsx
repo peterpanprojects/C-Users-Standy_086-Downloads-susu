@@ -169,6 +169,10 @@ const totalVolumeCollected = React.useMemo(() => totalPaidTransactions.reduce((s
 const totalPayoutPool = React.useMemo(() => schedule.reduce((sum, s) => sum + s.expectedPoolAmount, 0), [schedule]);
 const platformCommission = React.useMemo(() => totalVolumeCollected * 0.02, [totalVolumeCollected]);
 const displayCurrency = group?.currency || 'GH₵';
+const isPendingKycReview = (agent: AgentAccount) =>
+  agent.isKycSubmitted &&
+  agent.adminApprovalStatus !== 'verified' &&
+  agent.adminApprovalStatus !== 'rejected';
 const filteredAgents = React.useMemo(() => {
   return agents.filter((agent) => {
     const term = agentSearchTerm.toLowerCase().trim();
@@ -180,7 +184,7 @@ const filteredAgents = React.useMemo(() => {
       if (!matchesSearch) return false;
     }
     if (agentStatusFilter === 'verified') return agent.adminApprovalStatus === 'verified';
-    if (agentStatusFilter === 'pending') return agent.adminApprovalStatus === 'pending_admin_approval';
+    if (agentStatusFilter === 'pending') return isPendingKycReview(agent);
     if (agentStatusFilter === 'rejected') return agent.adminApprovalStatus === 'rejected';
     return true;
   });
@@ -752,7 +756,7 @@ const renderDocumentPreview = (label: string, src?: string) => {
                 Pending Review
               </span>
               <div style={{ fontSize: '1.75rem', fontWeight: 800, color: '#ca8a04', margin: '0.25rem 0' }}>
-                {agents.filter(a => a.adminApprovalStatus === 'pending_admin_approval' || (a.isKycSubmitted && a.adminApprovalStatus !== 'verified')).length}
+                {agents.filter(isPendingKycReview).length}
               </div>
               <span style={{ fontSize: '0.75rem', color: '#ca8a04' }}>Awaiting Admin Approval</span>
             </div>
@@ -769,7 +773,7 @@ const renderDocumentPreview = (label: string, src?: string) => {
           </div>
 
           {/* Pending KYC Review Cards (if any) */}
-          {agents.filter(a => a.adminApprovalStatus === 'pending_admin_approval' || (a.isKycSubmitted && a.adminApprovalStatus !== 'verified')).map(pendingAgent => {
+          {agents.filter(isPendingKycReview).map(pendingAgent => {
             const pendingKyc = pendingAgent.kycData;
             return (
               <div
@@ -960,7 +964,7 @@ const renderDocumentPreview = (label: string, src?: string) => {
                     color: agentStatusFilter === 'pending' ? '#854d0e' : 'var(--color-slate-700)'
                   }}
                 >
-                  Pending ({agents.filter(a => a.adminApprovalStatus === 'pending_admin_approval' || (a.isKycSubmitted && a.adminApprovalStatus !== 'verified')).length})
+                  Pending ({agents.filter(isPendingKycReview).length})
                 </button>
               </div>
 
@@ -1000,7 +1004,7 @@ const renderDocumentPreview = (label: string, src?: string) => {
                         'Agent Organizer';
                       const agentGroups = groups.filter(g => g.agentId === agent.id);
                       const isVerified = agent.adminApprovalStatus === 'verified';
-                      const isPending = agent.adminApprovalStatus === 'pending_admin_approval' || (agent.isKycSubmitted && !isVerified);
+                      const isPending = isPendingKycReview(agent);
 
                       return (
                         <tr key={agent.id}>
@@ -1367,7 +1371,7 @@ const renderDocumentPreview = (label: string, src?: string) => {
       {activeTab === 'users' && (
         <div className="card">
           {/* Agent KYC Review Panels for any pending agent */}
-          {agents.filter(a => a.adminApprovalStatus === 'pending_admin_approval').map(pendingAgent => {
+          {agents.filter(isPendingKycReview).map(pendingAgent => {
             const pendingKyc = pendingAgent.kycData;
             return (
               <div
