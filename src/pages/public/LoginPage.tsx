@@ -102,7 +102,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
 
     // 3. Agent login uses Supabase Auth so the session survives refresh.
     try {
-      const { supabase } = await import('../../services/db');
+      const { supabase, mapAgentAccount, DatabaseService } = await import('../../services/db');
       if (!supabase || !input.includes('@')) {
         setErrorMessage('Enter the email address linked to your agent account.');
         setLoading(false); return;
@@ -149,25 +149,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
         setLoading(false); return;
       }
 
-      const foundAgent = {
-        id: data.id,
-        firstName: data.first_name,
-        surname: data.surname,
-        email: data.email,
-        phone: data.phone || '',
-        avatarUrl: data.avatar_url || '',
-        isOtpVerified: Boolean(data.is_otp_verified),
-        isKycSubmitted: Boolean(data.is_kyc_submitted),
-        isActivated: Boolean(data.is_activated),
-        activationFeeAmount: Number(data.activation_fee_amount || 150),
-        activationPaidAt: data.activation_paid_at,
-        activationTxRef: data.activation_tx_ref,
-        adminApprovalStatus: data.admin_approval_status || 'none',
-        adminApprovedAt: data.admin_approved_at,
-        adminReviewNotes: data.admin_review_notes,
-        licenseNumber: data.license_number || '',
-        kycData: data.kyc_data
-      };
+      const foundAgent = mapAgentAccount(data);
+      if (
+        (!data.is_kyc_submitted && foundAgent.isKycSubmitted) ||
+        (!data.is_activated && foundAgent.isActivated)
+      ) {
+        await DatabaseService.saveAgentAccount(foundAgent, authData.user.id);
+      }
       updateAgentAccount(foundAgent);
       setActiveAgentId(foundAgent.id);
       setRole('agent');

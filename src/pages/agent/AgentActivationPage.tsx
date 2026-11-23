@@ -104,15 +104,20 @@ export const AgentActivationPage: React.FC<AgentActivationPageProps> = ({ onNavi
       onClose: () => {
         setProcessing(false);
       },
-      callback: (response: any) => {
+      callback: async (response: any) => {
         setProcessing(false);
-        setActivated(true);
-        activateAgentAccount(paymentMethod, response.reference);
-        confetti({
-          particleCount: 150,
-          spread: 70,
-          origin: { y: 0.6 }
-        });
+        try {
+          await activateAgentAccount(paymentMethod, response.reference);
+          setActivated(true);
+          confetti({
+            particleCount: 150,
+            spread: 70,
+            origin: { y: 0.6 }
+          });
+        } catch (error) {
+          console.error('Activation payment succeeded but account update failed:', error);
+          alert('Payment succeeded, but activation could not be saved. Do not pay again; contact support with your reference: ' + response.reference);
+        }
       }
     });
 

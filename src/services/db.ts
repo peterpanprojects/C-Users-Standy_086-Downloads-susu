@@ -18,6 +18,29 @@ export interface DatabaseState {
   agentMessages?: any[];
 }
 
+export function mapAgentAccount(row: any): AgentAccount {
+  const kycData = row.kyc_data;
+  return {
+    id: row.id,
+    firstName: row.first_name,
+    surname: row.surname,
+    email: row.email,
+    phone: row.phone || '',
+    avatarUrl: row.avatar_url || '',
+    isOtpVerified: Boolean(row.is_otp_verified),
+    isKycSubmitted: Boolean(row.is_kyc_submitted || kycData?.submittedAt),
+    isActivated: Boolean(row.is_activated || row.activation_paid_at || row.activation_tx_ref),
+    activationFeeAmount: Number(row.activation_fee_amount || 150),
+    activationPaidAt: row.activation_paid_at,
+    activationTxRef: row.activation_tx_ref,
+    adminApprovalStatus: row.admin_approval_status || 'none',
+    adminApprovedAt: row.admin_approved_at,
+    adminReviewNotes: row.admin_review_notes,
+    licenseNumber: row.license_number || '',
+    kycData
+  };
+}
+
 export function validateDatabaseIntegrity(state: Partial<DatabaseState>): { valid: boolean; error?: string } {
   if (state.group && state.group.fixedDailyAmount <= 0) return { valid: false, error: 'fixedDailyAmount must be > 0' };
   return { valid: true };
@@ -128,7 +151,7 @@ export const DatabaseService = {
             likesCount: post.likes_count,
             pinned: Boolean(post.pinned)
           })),
-          agents: (agentRes.data || []).map((agt: any) => ({ id: agt.id, firstName: agt.first_name, surname: agt.surname, email: agt.email, phone: agt.phone, isOtpVerified: agt.is_otp_verified, isKycSubmitted: agt.is_kyc_submitted, isActivated: agt.is_activated, activationFeeAmount: Number(agt.activation_fee_amount || 0), activationPaidAt: agt.activation_paid_at, activationTxRef: agt.activation_tx_ref, adminApprovalStatus: agt.admin_approval_status, adminApprovedAt: agt.admin_approved_at, adminReviewNotes: agt.admin_review_notes, licenseNumber: agt.license_number, kycData: agt.kyc_data })),
+          agents: (agentRes.data || []).map(mapAgentAccount),
           agentAccount: null,
           agentPaymentConfig: agentPaymentConfig,
           agentPaymentConfigs: agentPaymentConfigs,

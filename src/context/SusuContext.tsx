@@ -19,7 +19,7 @@ import {
 import { formatDateStr, getNearestMonday } from '../utils/dates';
 import { generatePayoutSchedule, reorderRotationQueue, shuffleFutureRotation } from '../utils/rotation';
 import { generatePaystackReference } from '../utils/paystack';
-import { DatabaseService, supabase } from '../services/db';
+import { DatabaseService, mapAgentAccount, supabase } from '../services/db';
 
 // --- FIX 1: Define AgentMessage here ---
 export interface AgentMessage {
@@ -72,7 +72,7 @@ export interface SusuContextType {
   updatePlatformPaymentConfig: (config: Partial<SuperAdminPaymentConfig>) => void;
   updatePlatformSettings: (settings: Partial<PlatformSettings>) => void;
   registerAgentKyc: (kycData: AgentKycData) => Promise<void>;
-  activateAgentAccount: (paymentMethod: string, txRef: string) => void;
+  activateAgentAccount: (paymentMethod: string, txRef: string) => Promise<void>;
   approveAgentKyc: (agentId: string, notes?: string) => Promise<void>;
   rejectAgentKyc: (agentId: string, reason: string) => void;
   updateAgentAccount: (agentIdOrPartial: string | Partial<AgentAccount>, partial?: Partial<AgentAccount>) => void;
@@ -450,30 +450,18 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         if (!data) throw new Error('No agent profile is linked to the signed-in Supabase user.');
-        const restoredAgent: AgentAccount = {
-          id: data.id,
-          firstName: data.first_name,
-          surname: data.surname,
-          email: data.email,
-          phone: data.phone || '',
-          avatarUrl: data.avatar_url || '',
-          isOtpVerified: Boolean(data.is_otp_verified),
-          isKycSubmitted: Boolean(data.is_kyc_submitted),
-          isActivated: Boolean(data.is_activated),
-          activationFeeAmount: Number(data.activation_fee_amount || 150),
-          activationPaidAt: data.activation_paid_at,
-          activationTxRef: data.activation_tx_ref,
-          adminApprovalStatus: data.admin_approval_status || 'none',
-          adminApprovedAt: data.admin_approved_at,
-          adminReviewNotes: data.admin_review_notes,
-          licenseNumber: data.license_number || '',
-          kycData: data.kyc_data
-        };
+        const restoredAgent = mapAgentAccount(data);
         if (mounted) {
           setAgents(prev => [restoredAgent, ...prev.filter(agent => agent.id !== restoredAgent.id)]);
           setActiveAgentIdState(restoredAgent.id);
           setCurrentAgentIdState(restoredAgent.id);
           setCurrentUserRole('agent');
+        }
+        if (
+          (!data.is_kyc_submitted && restoredAgent.isKycSubmitted) ||
+          (!data.is_activated && restoredAgent.isActivated)
+        ) {
+          await DatabaseService.saveAgentAccount(restoredAgent, user.id);
         }
       } catch (error) {
         console.error('Unable to restore the signed-in agent:', error);
@@ -955,28 +943,32 @@ const createAgent = async (data: Partial<AgentAccount>, password: string): Promi
     await DatabaseService.saveAgentAccount(updatedAgent);
   };
 
-  const activateAgentAccount = (paymentMethod: string, txRef: string) => {
-    setAgents(prev => prev.map(a => {
-      if (a.id === activeAgentId) {
-        return {
-         ...a,
-          isActivated: true,
-          activationPaidAt: new Date().toISOString(),
-          activationTxRef: txRef,
-          adminApprovalStatus: 'pending_admin_approval',
-          licenseNumber: a.licenseNumber &&!a.licenseNumber.includes('Pending')? a.licenseNumber : `SUSU-AGT-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
-        };
-      }
-      return a;
-    }));
+  const activateAgentAccount = async (_paymentMethod: string, txRef: string) => {
+    const agent = agents.find(a => a.id === activeAgentId);
+    if (!agent) throw new Error('No active agent account is selected.');
+    const updatedAgent = {
+      ...agent,
+      isActivated: true,
+      activationPaidAt: new Date().toISOString(),
+      activationTxRef: txRef,
+      adminApprovalStatus: 'pending_admin_approval' as const,
+      licenseNumber: agent.licenseNumber && !agent.licenseNumber.includes('Pending')
+        ? agent.licenseNumber
+        : `SUSU-AGT-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
+    };
+    setAgents(prev => prev.map(a => a.id === activeAgentId ? updatedAgent : a));
+    await DatabaseService.saveAgentAccount(updatedAgent);
   };
 
   const approveAgentKyc = async (agentId: string, notes?: string) => {
     const agent = agents.find(a => a.id === agentId);
     if (!agent) throw new Error('Agent account not found.');
-    if (!agent.isKycSubmitted) throw new Error('This agent has not submitted KYC yet.');
+    if (!agent.isKycSubmitted && !agent.kycData?.submittedAt) {
+      throw new Error('This agent has not submitted KYC yet.');
+    }
     const updatedAgent = {
       ...agent,
+      isKycSubmitted: true,
       adminApprovalStatus: 'verified' as const,
       adminApprovedAt: new Date().toISOString(),
       adminReviewNotes: notes || 'KYC verified and approved by Admin.',

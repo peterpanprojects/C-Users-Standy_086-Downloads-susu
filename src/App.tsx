@@ -214,10 +214,11 @@ const AppContent: React.FC = () => {
       case '/admin/live-support':
         return <LiveSupportPage onNavigate={handleNavigate} />;
       case '/agent/register-kyc':
-        // Once registered, agent should not see KYC again
-        if (agentAccount.isKycSubmitted) {
-          return <AgentDashboardPage onNavigate={handleNavigate} />;
+        if (agentAccount.isKycSubmitted && !agentAccount.isActivated) return <AgentActivationPage onNavigate={handleNavigate} />;
+        if (agentAccount.isKycSubmitted && agentAccount.isActivated && agentAccount.adminApprovalStatus !== 'verified') {
+          return <AgentPendingApprovalPage onNavigate={handleNavigate} />;
         }
+        if (agentAccount.isKycSubmitted) return <AgentDashboardPage onNavigate={handleNavigate} />;
         return <AgentKycRegistrationPage onNavigate={handleNavigate} />;
       case '/agent/activate':
         return <AgentActivationPage onNavigate={handleNavigate} />;
