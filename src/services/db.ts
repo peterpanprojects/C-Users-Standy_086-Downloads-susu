@@ -95,6 +95,25 @@ function saveAgentAccounts(agents: AgentAccount[], userIds: Record<string, strin
 
     const { error } = await supabase.from('agent_accounts').upsert(rows, { onConflict: 'id' });
     if (error) throw new Error(`Failed to save agent accounts: ${error.message}`);
+
+    const submittedAgents = agents.filter(agent =>
+      agent.isKycSubmitted || hasSubmittedKyc(agent.kycData)
+    );
+    if (submittedAgents.length) {
+      const { data: savedRows, error: verifyError } = await supabase
+        .from('agent_accounts')
+        .select('id, is_kyc_submitted, kyc_data')
+        .in('id', submittedAgents.map(agent => agent.id));
+      if (verifyError) throw new Error(`KYC was sent but could not be verified in Supabase: ${verifyError.message}`);
+
+      const savedById = new Map((savedRows || []).map((row: any) => [row.id, row]));
+      for (const agent of submittedAgents) {
+        const saved = savedById.get(agent.id) as any;
+        if (!saved || !(saved.is_kyc_submitted || hasSubmittedKyc(saved.kyc_data))) {
+          throw new Error(`Supabase did not confirm the KYC submission for ${agent.email}. Please retry and contact support if it continues.`);
+        }
+      }
+    }
   });
 
   agentWriteQueue = write.then(() => undefined, () => undefined);
