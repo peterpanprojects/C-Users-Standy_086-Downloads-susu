@@ -88,7 +88,7 @@ export interface SusuContextType {
   deleteGroup: (groupId?: string) => void;
   markCashPayment: (memberId: string, dateStr: string) => void;
   remindMember: (memberId: string) => Promise<void>;
-  processPayment: (memberId: string, dates: string[], method: PaymentMethod, paystackRef?: string) => Promise<void>;
+  processPayment: (memberId: string, dates: string[], method: PaymentMethod, paystackRef?: string, platformFee?: number) => Promise<void>;
   reorderCalendar: (fromIndex: number, toIndex: number) => void;
   shuffleCalendar: () => void;
   addFeedPost: (title: string, body: string, visibility: 'public' | 'group') => void;
@@ -1299,10 +1299,11 @@ const acceptInviteToken = async (token: string, name: string, phone: string): Pr
 
 
 
-  const processPayment = async (memberId: string, dates: string[], method: PaymentMethod, paystackRef?: string) => {
+  const processPayment = async (memberId: string, dates: string[], method: PaymentMethod, paystackRef?: string, feePaid = 0) => {
     if (!group || dates.length === 0) throw new Error('Payment could not be saved because its group or payment dates are missing.');
     const ref = paystackRef || generatePaystackReference();
     const paidTimestamp = new Date().toISOString();
+    const platformFee = method === 'paystack' ? feePaid : 0;
     const updatedPayments = dates.map((date, index) => {
       const existing = payments.find(payment => payment.memberId === memberId && payment.paymentDate === date);
       return {
@@ -1312,6 +1313,7 @@ const acceptInviteToken = async (token: string, name: string, phone: string): Pr
         memberId,
         paymentDate: date,
         amount: existing?.amount || group.fixedDailyAmount,
+        platformFee: method === 'paystack' && index === 0 ? platformFee : 0,
         status: 'paid' as const,
         paymentMethod: method,
         paystackReference: method === 'paystack' && index === 0 ? ref : undefined,

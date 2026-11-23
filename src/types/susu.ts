@@ -201,6 +201,7 @@ export interface DailyPayment {
   memberId: string; // group_members id
   paymentDate: string; // YYYY-MM-DD
   amount: number;
+  platformFee?: number;
   status: DailyPaymentStatus;
   paymentMethod: PaymentMethod;
   paystackReference?: string;

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useSusu } from '../../context/SusuContext';
 import { X, CheckCircle2, Lock, ArrowRight, ShieldCheck, Smartphone, CreditCard } from 'lucide-react';
 import { generatePaystackReference, initializePaystackCheckout } from '../../utils/paystack';
+import { calculatePlatformFee } from '../../utils/paymentFees';
 
 interface PaystackModalProps {
   isOpen: boolean; onClose: () => void; selectedDates: string[]; memberId: string;
@@ -18,6 +19,9 @@ export const PaystackModal: React.FC<PaystackModalProps> = ({ isOpen, onClose, s
   const currentMember = members.find((m) => m.id === memberId) || members[0];
   const daysCount = selectedDates.length || 1;
   const totalAmount = group? group.fixedDailyAmount * daysCount : 0;
+  const feePercent = platformPaymentConfig.globalPlatformFeePercent ?? 2;
+  const platformFee = calculatePlatformFee(totalAmount, feePercent);
+  const totalCharge = totalAmount + platformFee;
   const isFrozen = platformPaymentConfig.emergencyPayoutFreeze;
   const isOnlineDisabled =!agentPaymentConfig.allowPaystackOnline;
 
@@ -48,11 +52,11 @@ export const PaystackModal: React.FC<PaystackModalProps> = ({ isOpen, onClose, s
     initializePaystackCheckout({
       key: activeKey,
       email: currentMember.email || 'member@susu.platform',
-      amount: totalAmount,
+      amount: totalCharge,
       currency: group?.currency || 'GHS',
       ref: generatedRef,
       onSuccess: async (res: any) => {
-        await processPayment(currentMember.id, selectedDates, 'paystack', res.reference);
+        await processPayment(currentMember.id, selectedDates, 'paystack', res.reference, platformFee);
         setProcessing(false);
         setCompleted(true);
       },
@@ -83,7 +87,11 @@ export const PaystackModal: React.FC<PaystackModalProps> = ({ isOpen, onClose, s
             {isFrozen && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '0.75rem', borderRadius: '8px', fontSize: '0.8rem', marginBottom: '1rem', fontWeight: 600 }}>Platform Notice: Master emergency payout freeze is active.</div>}
             <div style={{ background: 'var(--color-slate-50)', border: '1px solid var(--color-slate-200)', borderRadius: 'var(--radius-md)', padding: '1rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div><span style={{ fontSize: '0.8rem', color: 'var(--color-slate-600)', display: 'block' }}>Contribution for {daysCount} {daysCount === 1? 'day' : 'days'}</span><span style={{ fontSize: '0.75rem', color: 'var(--color-emerald-700)', fontWeight: 600 }}>{selectedDates.join(', ')}</span></div>
-              <div style={{ textAlign: 'right' }}><span style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--color-emerald-950)' }}>{group?.currency}{totalAmount}</span></div>
+              <div style={{ textAlign: 'right' }}><span style={{ fontSize: '0.75rem', color: 'var(--color-slate-600)', display: 'block' }}>Contribution</span><span style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--color-emerald-950)' }}>{group?.currency}{totalAmount.toFixed(2)}</span></div>
+            </div>
+            <div style={{ border: '1px solid var(--color-slate-200)', borderRadius: 'var(--radius-md)', padding: '0.85rem 1rem', marginBottom: '1.25rem', fontSize: '0.85rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.45rem' }}><span style={{ color: 'var(--color-slate-600)' }}>Platform fee ({feePercent}%)</span><span>{group?.currency}{platformFee.toFixed(2)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, borderTop: '1px solid var(--color-slate-200)', paddingTop: '0.55rem' }}><span>Total charged</span><span>{group?.currency}{totalCharge.toFixed(2)}</span></div>
             </div>
             <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 'var(--radius-md)', padding: '0.85rem 1rem', marginBottom: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', fontWeight: 600, color: '#166534' }}><ShieldCheck size={16} color="#16a34a" /> Paystack Secured Checkout</div>
@@ -91,7 +99,7 @@ export const PaystackModal: React.FC<PaystackModalProps> = ({ isOpen, onClose, s
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', color: 'var(--color-slate-500)', marginBottom: '1.5rem' }}><Lock size={14} color="var(--color-emerald-600)" /> 256-Bit SSL Encrypted by Paystack</div>
             <button className="btn-gold" onClick={handleExecutePayment} disabled={processing || isFrozen || isOnlineDisabled} style={{ width: '100%', justifyContent: 'center', padding: '0.85rem', fontSize: '1rem', opacity: (isFrozen || isOnlineDisabled)? 0.5 : 1 }}>
-              {processing? 'Verifying Transaction...' : <>{`Pay ${group?.currency}${totalAmount} Now`} <ArrowRight size={18} /></>}
+              {processing? 'Verifying Transaction...' : <>{`Pay ${group?.currency}${totalCharge.toFixed(2)} Now`} <ArrowRight size={18} /></>}
             </button>
             <div style={{ marginTop: '0.75rem', fontSize: '0.65rem', color: '#999', textAlign: 'center' }}>Debug Key: {(getValidPaystackKey() || 'NO_KEY').substring(0,25)}... | Env: {platformPaymentConfig.environment}</div>
           </div>
@@ -102,7 +110,9 @@ export const PaystackModal: React.FC<PaystackModalProps> = ({ isOpen, onClose, s
             <p style={{ fontSize: '0.85rem', color: 'var(--color-slate-600)', marginBottom: '1.25rem' }}>Your daily Susu contribution has been logged.</p>
             <div style={{ background: 'var(--color-slate-100)', borderRadius: 'var(--radius-md)', padding: '1rem', textAlign: 'left', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}><span style={{ color: 'var(--color-slate-500)' }}>Reference:</span><span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{paymentRef}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--color-slate-500)' }}>Amount:</span><span style={{ fontWeight: 700 }}>{group?.currency}{totalAmount}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}><span style={{ color: 'var(--color-slate-500)' }}>Contribution:</span><span style={{ fontWeight: 700 }}>{group?.currency}{totalAmount.toFixed(2)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}><span style={{ color: 'var(--color-slate-500)' }}>Platform fee:</span><span style={{ fontWeight: 700 }}>{group?.currency}{platformFee.toFixed(2)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--color-slate-500)' }}>Total paid:</span><span style={{ fontWeight: 700 }}>{group?.currency}{totalCharge.toFixed(2)}</span></div>
             </div>
             <button className="btn-primary" onClick={handleDone} style={{ width: '100%', justifyContent: 'center' }}>Done & Return</button>
           </div>

@@ -47,7 +47,7 @@ export const MasterPaymentEngineTab: React.FC<MasterPaymentEngineTabProps> = ({ 
   // Compute platform-wide financial figures
   const totalPaidTransactions = safePayments.filter((p) => p.status === 'paid');
   const totalVolumeCollected = totalPaidTransactions.reduce((sum, p) => sum + (p.amount || 0), 0);
-  const platformRevenue = (totalVolumeCollected * (form?.globalPlatformFeePercent || 2)) / 100;
+  const platformRevenue = totalPaidTransactions.reduce((sum, payment) => sum + (payment.platformFee || 0), 0);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
