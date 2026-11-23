@@ -136,11 +136,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
         if (result.error) throw result.error;
         data = result.data;
         if (data && data.user_id !== authData.user.id) {
-          const { error: linkError } = await supabase
+          void supabase
             .from('agent_accounts')
             .update({ user_id: authData.user.id })
-            .eq('id', data.id);
-          if (linkError) throw linkError;
+            .eq('id', data.id)
+            .then(({ error: linkError }) => {
+              if (linkError) console.error('Unable to link agent profile to Supabase Auth:', linkError);
+            });
         }
       }
       if (!data) {
@@ -154,7 +156,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
         (!data.is_kyc_submitted && foundAgent.isKycSubmitted) ||
         (!data.is_activated && foundAgent.isActivated)
       ) {
-        await DatabaseService.saveAgentAccount(foundAgent, authData.user.id);
+        void DatabaseService.saveAgentAccount(foundAgent, authData.user.id).catch(saveError => {
+          console.error('Unable to repair saved agent account status after sign-in:', saveError);
+        });
       }
       updateAgentAccount(foundAgent);
       setActiveAgentId(foundAgent.id);

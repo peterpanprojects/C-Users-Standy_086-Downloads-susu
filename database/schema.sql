@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS agent_accounts (
 );
 
 ALTER TABLE agent_accounts ADD COLUMN IF NOT EXISTS user_id UUID;
+ALTER TABLE agent_accounts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 CREATE INDEX IF NOT EXISTS idx_agent_accounts_user_id ON agent_accounts(user_id);
 CREATE INDEX IF NOT EXISTS idx_agent_accounts_email ON agent_accounts(lower(email));
 CREATE INDEX IF NOT EXISTS idx_agent_accounts_approval ON agent_accounts(admin_approval_status);

@@ -473,7 +473,7 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session?.user) {
+      if ((event === 'INITIAL_SESSION' || event === 'SIGNED_IN') && session?.user) {
         window.setTimeout(() => {
           if (mounted) void restoreAgent(session.user);
         }, 0);
@@ -485,15 +485,6 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else if (event === 'INITIAL_SESSION' && mounted) {
         setAgentAuthReady(true);
       }
-    });
-
-    void supabase.auth.getSession().then(({ data, error }) => {
-      if (error) throw error;
-      if (data.session?.user) return restoreAgent(data.session.user);
-      if (mounted) setAgentAuthReady(true);
-    }).catch(error => {
-      console.error('Unable to restore Supabase auth session:', error);
-      if (mounted) setAgentAuthReady(true);
     });
 
     return () => {

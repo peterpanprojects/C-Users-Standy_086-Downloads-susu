@@ -178,10 +178,19 @@ export const DatabaseService = {
   async loadState(): Promise<DatabaseState> {
     if (supabase) {
       try {
-        const groupsRes = await supabase.from('susu_groups').select('*').order('created_at', { ascending: false });
-        const membersRes = await supabase.from('group_members').select('*').order('position_in_rotation', { ascending: true });
-
-        const [paymentsRes, postsRes, agentRes, paymentConfigsRes, liveConfigRes, notifsRes, agentMessagesRes] = await Promise.all([
+        const [
+          groupsRes,
+          membersRes,
+          paymentsRes,
+          postsRes,
+          agentRes,
+          paymentConfigsRes,
+          liveConfigRes,
+          notifsRes,
+          agentMessagesRes
+        ] = await Promise.all([
+          supabase.from('susu_groups').select('*').order('created_at', { ascending: false }),
+          supabase.from('group_members').select('*').order('position_in_rotation', { ascending: true }),
           supabase.from('daily_payments').select('*'),
           supabase.from('feed_posts').select('*').order('created_at', { ascending: false }),
           supabase.from('agent_accounts').select('id, first_name, surname, email, phone, is_otp_verified, is_kyc_submitted, is_activated, activation_fee_amount, activation_paid_at, activation_tx_ref, admin_approval_status, admin_approved_at, admin_review_notes, license_number, kyc_data, created_at').order('created_at', { ascending: false }),
