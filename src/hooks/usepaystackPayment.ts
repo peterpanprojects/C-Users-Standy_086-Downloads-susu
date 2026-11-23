@@ -21,25 +21,27 @@ export function usePaystackPayment() {
       amount: amount * 100, // kobo
       currency: 'GHS',
       ref: `SUSU_${paymentId}_${Date.now()}`,
-      callback: async function(response: any) {
-        try {
-          await verifyPaystackTransaction(response.reference, amount, 'GHS');
-          if (!supabase) throw new Error('Supabase is not configured.');
-          const { error } = await supabase.from('daily_payments').update({
-            status: 'paid',
-            payment_method: 'paystack',
-            paystack_reference: response.reference,
-            paid_at: new Date().toISOString()
-          }).eq('id', paymentId);
-          if (error) throw new Error(`Failed to save payment: ${error.message}`);
-          alert('Payment successful! ' + response.reference);
-          window.location.reload();
-        } catch (error) {
-          console.error('Unable to verify or save payment:', error);
-          alert(error instanceof Error ? error.message : 'Unable to verify or save payment.');
-        } finally {
-          setLoading(false);
-        }
+      callback: function(response: any) {
+        void (async () => {
+          try {
+            await verifyPaystackTransaction(response.reference, amount, 'GHS');
+            if (!supabase) throw new Error('Supabase is not configured.');
+            const { error } = await supabase.from('daily_payments').update({
+              status: 'paid',
+              payment_method: 'paystack',
+              paystack_reference: response.reference,
+              paid_at: new Date().toISOString()
+            }).eq('id', paymentId);
+            if (error) throw new Error(`Failed to save payment: ${error.message}`);
+            alert('Payment successful! ' + response.reference);
+            window.location.reload();
+          } catch (error) {
+            console.error('Unable to verify or save payment:', error);
+            alert(error instanceof Error ? error.message : 'Unable to verify or save payment.');
+          } finally {
+            setLoading(false);
+          }
+        })();
       },
       onClose: () => {
         setLoading(false);

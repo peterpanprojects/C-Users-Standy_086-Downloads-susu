@@ -84,7 +84,28 @@ export const AgentActivationPage: React.FC<AgentActivationPageProps> = ({ onNavi
       return;
     }
 
-    const handler = window.PaystackPop.setup({
+    try {
+      const callback = (response: any) => {
+        void (async () => {
+          try {
+            await verifyPaystackTransaction(response.reference, feeAmount, 'GHS');
+            await activateAgentAccount(paymentMethod, response.reference);
+            setProcessing(false);
+            setActivated(true);
+            confetti({
+              particleCount: 150,
+              spread: 70,
+              origin: { y: 0.6 }
+            });
+          } catch (error) {
+            setProcessing(false);
+            console.error('Unable to verify or activate account after Paystack callback:', error);
+            alert((error instanceof Error ? error.message : 'Payment verification or activation failed.') + ' Reference: ' + response.reference);
+          }
+        })();
+      };
+
+      const handler = window.PaystackPop.setup({
       key: PAYSTACK_PUBLIC_KEY,
       email: agentAccount.email || 'agent@susu.com',
       amount: feeAmount * 100,
@@ -101,26 +122,15 @@ export const AgentActivationPage: React.FC<AgentActivationPageProps> = ({ onNavi
       onClose: () => {
         setProcessing(false);
       },
-      callback: async (response: any) => {
-        try {
-          await verifyPaystackTransaction(response.reference, feeAmount, 'GHS');
-          await activateAgentAccount(paymentMethod, response.reference);
-          setProcessing(false);
-          setActivated(true);
-          confetti({
-            particleCount: 150,
-            spread: 70,
-            origin: { y: 0.6 }
-          });
-        } catch (error) {
-          setProcessing(false);
-          console.error('Unable to verify or activate account after Paystack callback:', error);
-          alert((error instanceof Error ? error.message : 'Payment verification or activation failed.') + ' Reference: ' + response.reference);
-        }
-      }
-    });
+      callback
+      });
 
-    handler.openIframe();
+      handler.openIframe();
+    } catch (error) {
+      setProcessing(false);
+      console.error('Unable to open Paystack checkout:', error);
+      alert(error instanceof Error ? error.message : 'Unable to open Paystack checkout. Please try again.');
+    }
   };
 
   return (

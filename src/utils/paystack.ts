@@ -63,16 +63,18 @@ export async function initializePaystackCheckout(params: PaystackTransactionPara
       amount: Math.round(params.amount * 100),
       currency: normalizePaystackCurrency(params.currency),
       ref: params.ref,
-      callback: async (response: any) => {
-        const reference = response.reference || params.ref;
-        try {
-          await verifyPaystackTransaction(reference, params.amount, params.currency);
-          await params.onSuccess({ reference, status: 'success' });
-        } catch (error) {
-          console.error('Paystack transaction verification failed:', error);
-          alert(error instanceof Error ? error.message : 'Payment verification failed. Please contact support.');
-          params.onClose();
-        }
+      callback: (response: any) => {
+        void (async () => {
+          const reference = response.reference || params.ref;
+          try {
+            await verifyPaystackTransaction(reference, params.amount, params.currency);
+            await params.onSuccess({ reference, status: 'success' });
+          } catch (error) {
+            console.error('Paystack transaction verification failed:', error);
+            alert(error instanceof Error ? error.message : 'Payment verification failed. Please contact support.');
+            params.onClose();
+          }
+        })();
       },
       onClose: () => {
         params.onClose();

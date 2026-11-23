@@ -81,6 +81,14 @@ CREATE TABLE IF NOT EXISTS susu_groups (
 );
 
 ALTER TABLE susu_groups ADD COLUMN IF NOT EXISTS agent_id TEXT;
+ALTER TABLE susu_groups ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '';
+ALTER TABLE susu_groups ADD COLUMN IF NOT EXISTS fixed_daily_amount NUMERIC(12, 2) NOT NULL DEFAULT 1;
+ALTER TABLE susu_groups ADD COLUMN IF NOT EXISTS currency VARCHAR(10) NOT NULL DEFAULT 'GH₵';
+ALTER TABLE susu_groups ADD COLUMN IF NOT EXISTS cycle_start_date DATE NOT NULL DEFAULT CURRENT_DATE;
+ALTER TABLE susu_groups ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE susu_groups ADD COLUMN IF NOT EXISTS paystack_public_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE susu_groups ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE susu_groups ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 CREATE INDEX IF NOT EXISTS idx_susu_groups_agent_id ON susu_groups(agent_id);
 CREATE INDEX IF NOT EXISTS idx_susu_groups_status ON susu_groups(status);
 
@@ -108,6 +116,17 @@ CREATE TABLE IF NOT EXISTS group_members (
 
 ALTER TABLE group_members ADD COLUMN IF NOT EXISTS user_id UUID;
 ALTER TABLE group_members ADD COLUMN IF NOT EXISTS group_id TEXT;
+ALTER TABLE group_members ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '';
+ALTER TABLE group_members ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT '';
+ALTER TABLE group_members ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT '';
+ALTER TABLE group_members ADD COLUMN IF NOT EXISTS invite_status TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE group_members ADD COLUMN IF NOT EXISTS invite_token TEXT NOT NULL DEFAULT '';
+ALTER TABLE group_members ADD COLUMN IF NOT EXISTS unique_code TEXT NOT NULL DEFAULT '';
+ALTER TABLE group_members ADD COLUMN IF NOT EXISTS position_in_rotation INT NOT NULL DEFAULT 1;
+ALTER TABLE group_members ADD COLUMN IF NOT EXISTS reliability_score INT NOT NULL DEFAULT 100;
+ALTER TABLE group_members ADD COLUMN IF NOT EXISTS joined_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE group_members ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE group_members ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 CREATE INDEX IF NOT EXISTS idx_group_members_group_id ON group_members(group_id);
 CREATE INDEX IF NOT EXISTS idx_group_members_unique_code ON group_members(upper(unique_code));
 CREATE INDEX IF NOT EXISTS idx_group_members_invite_token ON group_members(invite_token);
@@ -284,6 +303,12 @@ CREATE TABLE IF NOT EXISTS live_support_configs (
     auto_reply BOOLEAN NOT NULL DEFAULT true,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE live_support_configs ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'rezolv';
+ALTER TABLE live_support_configs ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE live_support_configs ADD COLUMN IF NOT EXISTS api_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE live_support_configs ADD COLUMN IF NOT EXISTS welcome_message TEXT NOT NULL DEFAULT 'Hello! How can we help you with your Susu account today?';
+ALTER TABLE live_support_configs ADD COLUMN IF NOT EXISTS auto_reply BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE live_support_configs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
 -- Adapt existing tables whose ID columns were created as UUID.
 -- This app generates text IDs (for example: group-123, agt-123, mem-123).

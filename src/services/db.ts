@@ -411,12 +411,53 @@ export const DatabaseService = {
     if (!integrity.valid) throw new Error(integrity.error);
     if (!supabase) return;
     try {
-      if (state.groups?.length) await supabase.from('susu_groups').upsert(state.groups.map(g => ({ id: g.id, name: g.name, agent_id: g.agentId, fixed_daily_amount: g.fixedDailyAmount, currency: g.currency, cycle_start_date: g.cycleStartDate, status: g.status, paystack_public_key: (g as any).paystackPublicKey || '' })), { onConflict: 'id' });
+      if (state.groups?.length) {
+        const { error } = await supabase.from('susu_groups').upsert(state.groups.map(g => ({
+          id: g.id,
+          name: g.name,
+          agent_id: g.agentId,
+          fixed_daily_amount: g.fixedDailyAmount,
+          currency: g.currency,
+          cycle_start_date: g.cycleStartDate,
+          status: g.status,
+          paystack_public_key: (g as any).paystackPublicKey || ''
+        })), { onConflict: 'id' });
+        if (error) throw new Error(`Failed to sync groups (${error.code || 'Supabase'}): ${error.message}`);
+      }
       if (state.agents?.length) {
         await saveAgentAccounts(state.agents);
       }
-      if (state.members?.length) await supabase.from('group_members').upsert(state.members.map(m => ({ id: m.id, group_id: m.groupId, user_id: m.userId, name: m.name, email: m.email, phone: m.phone, invite_status: m.inviteStatus, invite_token: m.inviteToken, unique_code: m.uniqueCode, joined_at: m.joinedAt, position_in_rotation: m.positionInRotation, reliability_score: (m as any).reliabilityScore || 100 })), { onConflict: 'id' });
-      if (state.payments?.length) await supabase.from('daily_payments').upsert(state.payments.map(p => ({ id: p.id, group_id: p.groupId, member_id: p.memberId, payment_date: p.paymentDate, amount: p.amount, status: p.status, payment_method: p.paymentMethod, paystack_reference: p.paystackReference, paid_at: p.paidAt })), { onConflict: 'id' });
+      if (state.members?.length) {
+        const { error } = await supabase.from('group_members').upsert(state.members.map(m => ({
+          id: m.id,
+          group_id: m.groupId,
+          user_id: m.userId,
+          name: m.name,
+          email: m.email,
+          phone: m.phone,
+          invite_status: m.inviteStatus,
+          invite_token: m.inviteToken,
+          unique_code: m.uniqueCode,
+          joined_at: m.joinedAt,
+          position_in_rotation: m.positionInRotation,
+          reliability_score: (m as any).reliabilityScore || 100
+        })), { onConflict: 'id' });
+        if (error) throw new Error(`Failed to sync members (${error.code || 'Supabase'}): ${error.message}`);
+      }
+      if (state.payments?.length) {
+        const { error } = await supabase.from('daily_payments').upsert(state.payments.map(p => ({
+          id: p.id,
+          group_id: p.groupId,
+          member_id: p.memberId,
+          payment_date: p.paymentDate,
+          amount: p.amount,
+          status: p.status,
+          payment_method: p.paymentMethod,
+          paystack_reference: p.paystackReference,
+          paid_at: p.paidAt
+        })), { onConflict: 'id' });
+        if (error) throw new Error(`Failed to sync payments (${error.code || 'Supabase'}): ${error.message}`);
+      }
       if (state.posts?.length) await supabase.from('feed_posts').upsert(state.posts.map(post => ({
         id: post.id,
         group_id: null,
@@ -431,7 +472,8 @@ export const DatabaseService = {
 
       if (state.liveSupportConfig) {
         const existing = await supabase.from('live_support_configs').select('id').limit(1).maybeSingle();
-        await supabase.from('live_support_configs').upsert({
+        if (existing.error) throw new Error(`Failed to load live support config (${existing.error.code || 'Supabase'}): ${existing.error.message}`);
+        const { error } = await supabase.from('live_support_configs').upsert({
           ...(existing.data?.id ? { id: existing.data.id } : {}),
           provider: (state.liveSupportConfig as any).provider || 'rezolv',
           enabled: (state.liveSupportConfig as any).enabled ?? true,
@@ -439,6 +481,7 @@ export const DatabaseService = {
           welcome_message: (state.liveSupportConfig as any).welcomeMessage || '',
           auto_reply: (state.liveSupportConfig as any).autoReply ?? true
         }, { onConflict: 'id' });
+        if (error) throw new Error(`Failed to sync live support config (${error.code || 'Supabase'}): ${error.message}`);
       }
 
       if (state.agentMessages?.length) await supabase.from('agent_messages').upsert(state.agentMessages.map((message: any) => ({
@@ -509,7 +552,7 @@ export const DatabaseService = {
         }, { onConflict: 'entity_type' });
         if (error) console.warn('Save agentPaymentConfig failed:', error.message);
       }
-    } catch (err) { console.warn('Supabase sync warning:', err); }
+    } catch (err) { console.error('Supabase state sync failed:', err); }
   },
 
   async createGroup(newGroup: SusuGroup): Promise<void> {
