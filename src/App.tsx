@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { SusuProvider, useSusu } from './context/SusuContext';
 import { Header } from './components/common/Header';
 import { Sidebar } from './components/common/Sidebar';
@@ -72,14 +72,14 @@ const AppContent: React.FC = () => {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  const handleNavigate = (path: string) => {
+  const handleNavigate = useCallback((path: string) => {
     setCurrentPath(path);
     if (window.location.pathname !== path) {
       window.history.pushState({}, '', path);
     }
     setMobileSidebarOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  }, []);
 
   useEffect(() => {
     if (

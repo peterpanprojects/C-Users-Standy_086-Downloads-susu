@@ -19,14 +19,22 @@ export interface DatabaseState {
 }
 
 function hasSubmittedKyc(kycData: any): boolean {
+  const parsedKyc = typeof kycData === 'string'
+    ? (() => {
+        try { return JSON.parse(kycData); } catch { return null; }
+      })()
+    : kycData;
   return Boolean(
-    kycData?.submittedAt ||
-    (kycData?.fullName?.trim() && kycData?.idCardNumber?.trim() && kycData?.digitalAddress?.trim())
+    parsedKyc?.submittedAt ||
+    (parsedKyc?.fullName?.trim() && parsedKyc?.idCardNumber?.trim() && parsedKyc?.digitalAddress?.trim())
   );
 }
 
 export function mapAgentAccount(row: any): AgentAccount {
-  const kycData = row.kyc_data;
+  let kycData = row.kyc_data;
+  if (typeof kycData === 'string') {
+    try { kycData = JSON.parse(kycData); } catch {}
+  }
   return {
     id: row.id,
     firstName: row.first_name,

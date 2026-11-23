@@ -61,6 +61,7 @@ export interface SusuContextType {
   setActiveAgentId: (agentId: string) => void;
   createAgent: (data: Partial<AgentAccount>, password: string) => Promise<{ requiresEmailConfirmation: boolean }>;
   signOut: () => Promise<void>;
+  refreshAgentAccount: (agentId?: string) => Promise<AgentAccount>;
   agentPaymentConfig: AgentPaymentConfig;
   platformPaymentConfig: SuperAdminPaymentConfig;
   platformSettings: PlatformSettings;
@@ -516,6 +517,14 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setActiveGroupIdState('');
     }
   };
+
+  const refreshAgentAccount = React.useCallback(async (agentId = activeAgentId): Promise<AgentAccount> => {
+    if (!agentId) throw new Error('No active agent account is selected.');
+    const refreshedAgent = await DatabaseService.getAgentAccount(agentId);
+    setAgents(prev => [refreshedAgent, ...prev.filter(agent => agent.id !== refreshedAgent.id)]);
+    if (refreshedAgent.isKycSubmitted) await DatabaseService.saveAgentAccount(refreshedAgent);
+    return refreshedAgent;
+  }, [activeAgentId]);
 
   const agentAccount: AgentAccount = (() => {
     if (activeAgentId) {
@@ -1428,7 +1437,7 @@ const acceptInviteToken = async (token: string, name: string, phone: string): Pr
     <SusuContext.Provider value={{
       isAgentAuthReady,
       currentUserRole, activeMemberId, activeUser: getActiveUser(), group, groups, myGroups, myMembers, myPayments, activeGroupId, setActiveGroupId, members, schedule, payments, posts,
-      agentAccount, agents, activeAgentId, setActiveAgentId, createAgent, signOut, agentPaymentConfig, platformPaymentConfig, platformSettings,
+      agentAccount, agents, activeAgentId, setActiveAgentId, createAgent, signOut, refreshAgentAccount, agentPaymentConfig, platformPaymentConfig, platformSettings,
       setRole, createGroup, updateGroupSettings, updateAgentPaymentConfig, updateAgentPaymentConfigForAgent, updatePlatformPaymentConfig, updatePlatformSettings,
       registerAgentKyc, activateAgentAccount, approveAgentKyc, rejectAgentKyc, updateAgentAccount, updateAgentKyc, deleteAgent,
       updateMemberProfile, loginWithUniqueCode, inviteMember, acceptInviteToken, removeMember, deleteGroup,

@@ -29,7 +29,7 @@ interface AgentKycRegistrationPageProps {
 }
 
 export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> = ({ onNavigate }) => {
-  const { agentAccount, registerAgentKyc } = useSusu();
+  const { agentAccount, activeAgentId, refreshAgentAccount, registerAgentKyc } = useSusu();
 
   // 1. Full name (prefilled from agentAccount)
   const [fullName, setFullName] = useState(
@@ -167,6 +167,28 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
   // Submission state
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [checkingSavedKyc, setCheckingSavedKyc] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    refreshAgentAccount(activeAgentId).then(refreshedAgent => {
+      if (!active || !refreshedAgent.isKycSubmitted) return;
+      if (refreshedAgent.isActivated && refreshedAgent.adminApprovalStatus !== 'verified') {
+        onNavigate('/agent/pending-approval');
+      } else if (!refreshedAgent.isActivated) {
+        onNavigate('/agent/activate');
+      } else {
+        onNavigate('/agent/dashboard');
+      }
+    }).catch(refreshError => {
+      if (active) {
+        setError(refreshError instanceof Error ? refreshError.message : 'Unable to verify your saved KYC status.');
+      }
+    }).finally(() => {
+      if (active) setCheckingSavedKyc(false);
+    });
+    return () => { active = false; };
+  }, [activeAgentId, onNavigate, refreshAgentAccount]);
 
   // Handle Camera initialization for selfie
   const startCamera = async () => {
@@ -1065,7 +1087,7 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
           <button
             type="submit"
             className="btn-gold"
-            disabled={submitting}
+            disabled={submitting || checkingSavedKyc}
             style={{
               padding: '0.85rem 2rem',
               fontSize: '1rem',
@@ -1074,8 +1096,8 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
               gap: '0.5rem'
             }}
           >
-            {submitting ? 'Submitting...' : 'Submit Registration & Proceed to Activation'}
-            <ArrowRight size={18} />
+            {checkingSavedKyc ? 'Checking saved registration...' : submitting ? 'Submitting...' : 'Submit Registration & Proceed to Activation'}
+            {!checkingSavedKyc && <ArrowRight size={18} />}
           </button>
         </div>
       </form>
