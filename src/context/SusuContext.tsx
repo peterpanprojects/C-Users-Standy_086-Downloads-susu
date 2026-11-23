@@ -62,6 +62,7 @@ export interface SusuContextType {
   createAgent: (data: Partial<AgentAccount>, password: string) => Promise<{ requiresEmailConfirmation: boolean }>;
   signOut: () => Promise<void>;
   refreshAgentAccount: (agentId?: string) => Promise<AgentAccount>;
+  refreshAgents: () => Promise<void>;
   agentPaymentConfig: AgentPaymentConfig;
   platformPaymentConfig: SuperAdminPaymentConfig;
   platformSettings: PlatformSettings;
@@ -525,6 +526,11 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (refreshedAgent.isKycSubmitted) await DatabaseService.saveAgentAccount(refreshedAgent);
     return refreshedAgent;
   }, [activeAgentId]);
+
+  const refreshAgents = React.useCallback(async (): Promise<void> => {
+    const refreshedAgents = await DatabaseService.loadAgents();
+    setAgents(refreshedAgents);
+  }, []);
 
   const agentAccount: AgentAccount = (() => {
     if (activeAgentId) {
@@ -1437,7 +1443,7 @@ const acceptInviteToken = async (token: string, name: string, phone: string): Pr
     <SusuContext.Provider value={{
       isAgentAuthReady,
       currentUserRole, activeMemberId, activeUser: getActiveUser(), group, groups, myGroups, myMembers, myPayments, activeGroupId, setActiveGroupId, members, schedule, payments, posts,
-      agentAccount, agents, activeAgentId, setActiveAgentId, createAgent, signOut, refreshAgentAccount, agentPaymentConfig, platformPaymentConfig, platformSettings,
+      agentAccount, agents, activeAgentId, setActiveAgentId, createAgent, signOut, refreshAgentAccount, refreshAgents, agentPaymentConfig, platformPaymentConfig, platformSettings,
       setRole, createGroup, updateGroupSettings, updateAgentPaymentConfig, updateAgentPaymentConfigForAgent, updatePlatformPaymentConfig, updatePlatformSettings,
       registerAgentKyc, activateAgentAccount, approveAgentKyc, rejectAgentKyc, updateAgentAccount, updateAgentKyc, deleteAgent,
       updateMemberProfile, loginWithUniqueCode, inviteMember, acceptInviteToken, removeMember, deleteGroup,

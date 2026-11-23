@@ -134,6 +134,16 @@ export function validateDatabaseIntegrity(state: Partial<DatabaseState>): { vali
 }
 
 export const DatabaseService = {
+  async loadAgents(): Promise<AgentAccount[]> {
+    if (!supabase) throw new Error('Supabase is not configured.');
+    const { data, error } = await supabase
+      .from('agent_accounts')
+      .select('id, first_name, surname, email, phone, is_otp_verified, is_kyc_submitted, is_activated, activation_fee_amount, activation_paid_at, activation_tx_ref, admin_approval_status, admin_approved_at, admin_review_notes, license_number, kyc_data, created_at')
+      .order('created_at', { ascending: false });
+    if (error) throw new Error(`Failed to load agent applications: ${error.message}`);
+    return (data || []).map(mapAgentAccount);
+  },
+
   async loadState(): Promise<DatabaseState> {
     if (supabase) {
       try {

@@ -54,6 +54,7 @@ export const DeveloperAdminPage: React.FC<DeveloperAdminPageProps> = ({ initialT
     setActiveAgentId,
     approveAgentKyc,
     rejectAgentKyc,
+    refreshAgents,
 updateAgentPaymentConfigForAgent
   } = useSusu();
 
@@ -61,6 +62,21 @@ updateAgentPaymentConfigForAgent
   const [agentSearchTerm, setAgentSearchTerm] = useState('');
   const [agentStatusFilter, setAgentStatusFilter] = useState<'all' | 'verified' | 'pending' | 'rejected'>('all');
   const [emergencyAlert, setEmergencyAlert] = useState<string | null>(null);
+  const [isRefreshingAgents, setIsRefreshingAgents] = useState(false);
+  const [agentRefreshError, setAgentRefreshError] = useState<string | null>(null);
+
+  const refreshAgentList = React.useCallback(async () => {
+    setIsRefreshingAgents(true);
+    try {
+      await refreshAgents();
+      setAgentRefreshError(null);
+    } catch (error) {
+      console.error('Failed to refresh agent applications:', error);
+      setAgentRefreshError(error instanceof Error ? error.message : 'Unable to refresh agent applications.');
+    } finally {
+      setIsRefreshingAgents(false);
+    }
+  }, [refreshAgents]);
 
   React.useEffect(() => {
     setRole('super_admin');
@@ -71,6 +87,13 @@ updateAgentPaymentConfigForAgent
       setActiveTab(initialTab);
     }
   }, [initialTab]);
+
+  React.useEffect(() => {
+    if (activeTab !== 'agents') return;
+    void refreshAgentList();
+    const intervalId = window.setInterval(() => void refreshAgentList(), 15000);
+    return () => window.clearInterval(intervalId);
+  }, [activeTab, refreshAgentList]);
 
   // Super Admin Management Modals State
   const [selectedAgent, setSelectedAgent] = useState<AgentAccount | null>(null);
@@ -675,6 +698,15 @@ const renderDocumentPreview = (label: string, src?: string) => {
 
             <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
               <button
+                type="button"
+                onClick={() => void refreshAgentList()}
+                disabled={isRefreshingAgents}
+                className="btn-secondary"
+                style={{ fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+              >
+                <RefreshCw size={16} /> {isRefreshingAgents ? 'Refreshing...' : 'Refresh Applications'}
+              </button>
+              <button
                 onClick={() => {
                   setSelectedAgent(agents[0] || agentAccount);
                   setIsAddGroupOpen(true);
@@ -687,6 +719,11 @@ const renderDocumentPreview = (label: string, src?: string) => {
               </button>
             </div>
           </div>
+          {agentRefreshError && (
+            <div role="alert" style={{ padding: '0.75rem 1rem', color: '#b91c1c', background: '#fee2e2', border: '1px solid #fecaca', borderRadius: '8px' }}>
+              Could not load the latest agent applications: {agentRefreshError}
+            </div>
+          )}
 
           {/* Quick Metrics */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
