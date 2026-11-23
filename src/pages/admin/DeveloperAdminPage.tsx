@@ -89,11 +89,17 @@ updateAgentPaymentConfigForAgent
   }, [initialTab]);
 
   React.useEffect(() => {
-    if (activeTab !== 'agents') return;
     void refreshAgentList();
-    const intervalId = window.setInterval(() => void refreshAgentList(), 15000);
-    return () => window.clearInterval(intervalId);
-  }, [activeTab, refreshAgentList]);
+    const refreshWhenVisible = () => {
+      if (!document.hidden) void refreshAgentList();
+    };
+    const intervalId = window.setInterval(refreshWhenVisible, 15000);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [refreshAgentList]);
 
   // Super Admin Management Modals State
   const [selectedAgent, setSelectedAgent] = useState<AgentAccount | null>(null);
