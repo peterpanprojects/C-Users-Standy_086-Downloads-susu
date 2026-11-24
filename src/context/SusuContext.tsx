@@ -9,7 +9,6 @@ import {
   GroupMember,
   LiveSupportConfig,
   PaymentMethod,
-  PayoutDisbursement,
   PayoutScheduleWeek,
   SuperAdminPaymentConfig,
   SusuGroup,
@@ -54,10 +53,6 @@ export interface SusuContextType {
   setActiveGroupId: (groupId: string) => void;
   members: GroupMember[];
   schedule: PayoutScheduleWeek[];
-  payoutDisbursements: PayoutDisbursement[];
-  refreshPayoutDisbursements: () => Promise<void>;
-  uploadPayoutProof: (payoutId: string, file: File) => Promise<void>;
-  respondToPayout: (payoutId: string, response: 'received' | 'not_received') => Promise<void>;
   payments: DailyPayment[];
   posts: FeedPost[];
   agentAccount: AgentAccount;
@@ -86,7 +81,7 @@ export interface SusuContextType {
   updateAgentKyc: (agentIdOrKyc: string | Partial<AgentKycData>, kycData?: Partial<AgentKycData>) => void;
   deleteAgent: (agentIdOrOptions?: string | { resetGroup?: boolean }, options?: { resetGroup?: boolean }) => void;
   updateMemberProfile: (memberId: string, partial: Partial<GroupMember>) => void;
-  loginMemberWithCode: (code: string) => Promise<void>;
+  loginWithUniqueCode: (code: string) => boolean;
   inviteMember: (name: string, email: string, phone: string) => Promise<{ token: string; inviteUrl: string; uniqueCode: string }>;
   acceptInviteToken: (token: string, name: string, phone: string) => Promise<boolean>;
   removeMember: (memberId: string) => void;
@@ -231,7 +226,6 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return 'visitor';
   });
   const [activeMemberId, setActiveMemberIdState] = useState<string>('');
-  const [memberAccessCode, setMemberAccessCode] = useState(() => window.sessionStorage.getItem('memberAccessCode') || '');
 
   const setActiveMemberId = (id: string) => {
     setActiveMemberIdState(id);
@@ -452,20 +446,7 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
 
-        if (!data) {
-          const { data: userProfile, error: profileError } = await supabase
-            .from('users')
-            .select('role')
-            .eq('id', user.id)
-            .maybeSingle();
-          if (profileError) throw profileError;
-          if (userProfile?.role === 'super_admin') {
-            if (mounted) setCurrentUserRole('super_admin');
-            return;
-          }
-
-          throw new Error('No agent or Super Admin profile is linked to the signed-in Supabase user.');
-        }
+        if (!data) throw new Error('No agent profile is linked to the signed-in Supabase user.');
         const restoredAgent = mapAgentAccount(data);
         if (mounted) {
           setAgents(prev => [restoredAgent, ...prev.filter(agent => agent.id !== restoredAgent.id)]);
@@ -638,7 +619,6 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
             momoName: (merged as any).momoName || merged.momoAccountName || '',
             momoAccountName: merged.momoAccountName || (merged as any).momoName || '',
             subaccountCode: (merged as any).subaccountCode || (merged as any).paystackSubaccountCode || '',
-            paystackRecipientCode: merged.paystackRecipientCode || (merged as any).recipientCode || '',
             payoutMethod: merged.payoutMethod || 'momo',
             momoProvider: merged.momoProvider || 'MTN',
             bankName: merged.bankName || '',
@@ -676,7 +656,6 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
             momoName: (merged as any).momoName || merged.momoAccountName || '',
             momoAccountName: merged.momoAccountName || (merged as any).momoName || '',
             subaccountCode: (merged as any).subaccountCode || (merged as any).paystackSubaccountCode || '',
-            paystackRecipientCode: merged.paystackRecipientCode || (merged as any).recipientCode || '',
             payoutMethod: merged.payoutMethod || 'momo',
             momoProvider: merged.momoProvider || 'MTN',
             bankName: merged.bankName || '',
@@ -699,55 +678,6 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const [schedule, setSchedule] = useState<PayoutScheduleWeek[]>([]);
-  const [payoutDisbursements, setPayoutDisbursements] = useState<PayoutDisbursement[]>([]);
-  const refreshPayoutDisbursements = React.useCallback(async () => {
-    if (currentUserRole === 'member') {
-      if (!memberAccessCode) {
-        setPayoutDisbursements([]);
-        return;
-      }
-      const result = await DatabaseService.loadMemberPayouts(memberAccessCode);
-      setPayoutDisbursements(result.payouts);
-      return;
-    }
-    const records = await DatabaseService.loadPayoutDisbursements();
-    setPayoutDisbursements(records);
-  }, [currentUserRole, memberAccessCode]);
-
-  const uploadPayoutProof = async (payoutId: string, file: File) => {
-    if (currentUserRole !== 'agent') throw new Error('Only the group agent can upload payout proof.');
-    await DatabaseService.uploadPayoutProof(payoutId, file);
-    await refreshPayoutDisbursements();
-  };
-
-  const respondToPayout = async (payoutId: string, response: 'received' | 'not_received') => {
-    if (currentUserRole !== 'member' || !activeMemberId) {
-      throw new Error('Only the scheduled member can confirm or dispute this payout.');
-    }
-    if (currentUserRole === 'member') {
-      if (!memberAccessCode) throw new Error('Enter your Member Code to confirm this payout.');
-      await DatabaseService.respondToMemberPayout(memberAccessCode, payoutId, response);
-    } else {
-      await DatabaseService.respondToPayout(payoutId, response);
-    }
-    await refreshPayoutDisbursements();
-  };
-
-  useEffect(() => {
-    if (currentUserRole === 'visitor') {
-      setPayoutDisbursements([]);
-      return;
-    }
-    const refresh = () => {
-      refreshPayoutDisbursements().catch(error => {
-        console.error('Unable to load payout records:', error);
-      });
-    };
-    refresh();
-    const intervalId = window.setInterval(refresh, 30000);
-    return () => window.clearInterval(intervalId);
-  }, [currentUserRole, activeMemberId, activeGroupId, refreshPayoutDisbursements]);
-
   useEffect(() => {
     if (!group) { setSchedule([]); return; }
     const groupMembers = members.filter(m => m.groupId === group.id);
@@ -762,7 +692,6 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setGroups(dbState.groups || (dbState.group ? [dbState.group] : []));
       setMembers(dbState.members || []);
       setPayments(dbState.payments || []);
-      setPayoutDisbursements(dbState.payoutDisbursements || []);
       setPosts(dbState.posts || []);
       
       if (dbState.agents && dbState.agents.length > 0) {
@@ -792,21 +721,6 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsDbLoaded(true);
     });
   }, []);
-
-  useEffect(() => {
-    if (!memberAccessCode || !isDbLoaded || currentUserRole !== 'visitor') return;
-    let cancelled = false;
-    DatabaseService.loadMemberPayouts(memberAccessCode).then(result => {
-      if (cancelled) return;
-      setActiveMemberIdState(result.memberId);
-      setActiveGroupIdState(result.groupId);
-      setPayoutDisbursements(result.payouts);
-      setCurrentUserRole('member');
-    }).catch(error => {
-      console.error('Unable to restore Member Code session:', error);
-    });
-    return () => { cancelled = true; };
-  }, [memberAccessCode, isDbLoaded, currentUserRole]);
 
 const hasSkippedFirstSave = React.useRef(false);
   useEffect(() => {
@@ -863,9 +777,6 @@ const stateToSave = {
     if (role === 'member') {
       const resolved = memberId || activeMemberId || members[0]?.id || '';
       setActiveMemberId(resolved);
-    } else {
-      window.sessionStorage.removeItem('memberAccessCode');
-      setMemberAccessCode('');
     }
   };
 
@@ -875,12 +786,8 @@ const stateToSave = {
       if (error) throw new Error(`Unable to sign out: ${error.message}`);
     }
     setCurrentUserRole('visitor');
-    window.sessionStorage.removeItem('memberAccessCode');
-    setMemberAccessCode('');
-    setActiveMemberIdState('');
     setActiveAgentIdState('');
     setCurrentAgentIdState('');
-    setPayoutDisbursements([]);
   };
 
   const createGroup = (name: string, fixedDailyAmount: number, cycleStartDate?: string, currency?: string, agentId?: string): SusuGroup => {
@@ -1120,16 +1027,11 @@ const createAgent = async (data: Partial<AgentAccount>, password: string): Promi
   };
 
   const updateMemberProfile = (memberId: string, partial: Partial<GroupMember>) => setMembers(prev => prev.map(m => m.id === memberId? {...m,...partial } : m));
-  const loginMemberWithCode = async (code: string): Promise<void> => {
-    const value = code.trim().toUpperCase();
-    if (!value) throw new Error('Enter your Member Code.');
-    const result = await DatabaseService.loadMemberPayouts(value);
-    window.sessionStorage.setItem('memberAccessCode', value);
-    setMemberAccessCode(value);
-    setActiveMemberIdState(result.memberId);
-    setActiveGroupIdState(result.groupId);
-    setPayoutDisbursements(result.payouts);
-    setCurrentUserRole('member');
+  const loginWithUniqueCode = (code: string): boolean => {
+    const trimmed = code.trim().toUpperCase();
+    const found = members.find(m => (m.uniqueCode && m.uniqueCode.toUpperCase() === trimmed) || (m.inviteToken && m.inviteToken.toLowerCase() === code.trim().toLowerCase()));
+    if (found) { setRole('member', found.id); return true; }
+    return false;
   };
 
 
@@ -1513,11 +1415,11 @@ const acceptInviteToken = async (token: string, name: string, phone: string): Pr
   return (
     <SusuContext.Provider value={{
       isAgentAuthReady,
-      currentUserRole, activeMemberId, activeUser: getActiveUser(), group, groups, myGroups, myMembers, myPayments, activeGroupId, setActiveGroupId, members, schedule, payoutDisbursements, refreshPayoutDisbursements, uploadPayoutProof, respondToPayout, payments, posts,
+      currentUserRole, activeMemberId, activeUser: getActiveUser(), group, groups, myGroups, myMembers, myPayments, activeGroupId, setActiveGroupId, members, schedule, payments, posts,
       agentAccount, agents, activeAgentId, setActiveAgentId, createAgent, signOut, refreshAgentAccount, refreshAgents, agentPaymentConfig, platformPaymentConfig, platformSettings,
       setRole, createGroup, updateGroupSettings, updateAgentPaymentConfig, updateAgentPaymentConfigForAgent, updatePlatformPaymentConfig, updatePlatformSettings,
       registerAgentKyc, activateAgentAccount, approveAgentKyc, rejectAgentKyc, updateAgentAccount, updateAgentKyc, deleteAgent,
-      updateMemberProfile, loginMemberWithCode, inviteMember, acceptInviteToken, removeMember, deleteGroup,
+      updateMemberProfile, loginWithUniqueCode, inviteMember, acceptInviteToken, removeMember, deleteGroup,
       markCashPayment, processPayment, reorderCalendar, remindMember, shuffleCalendar, addFeedPost, resetDemoData, resetSystemData,
       getMemberReliability, selectRotationSlot, liveSupportConfig, updateLiveSupportConfig, agentMessages, sendAgentMessage,
       notifications, markNotificationAsRead, markAllNotificationsAsRead, addNotification, clearAllNotifications

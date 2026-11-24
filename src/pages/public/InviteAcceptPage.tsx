@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSusu } from '../../context/SusuContext';
-import { ShieldCheck, CheckCircle2, ArrowRight, Lock } from 'lucide-react';
+import { ShieldCheck, CheckCircle2, ArrowRight, Lock, Eye, EyeOff } from 'lucide-react';
 import { supabase } from '../../services/db';
 
 interface InviteAcceptPageProps {
@@ -9,13 +9,15 @@ interface InviteAcceptPageProps {
 }
 
 export const InviteAcceptPage: React.FC<InviteAcceptPageProps> = ({ token, onNavigate }) => {
-  const { acceptInviteToken, group, members, schedule, selectRotationSlot } = useSusu();
+  const { acceptInviteToken, setRole, group, members, schedule, selectRotationSlot } = useSusu();
 
   const [loading, setLoading] = useState(true);
   const [inviteValid, setInviteValid] = useState(false);
   const [inviteData, setInviteData] = useState<any>(null);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<number>(1);
   const [accepted, setAccepted] = useState(false);
 
@@ -124,6 +126,10 @@ useEffect(() => {
   }
 
   setAccepted(true);
+  setTimeout(() => {
+    setRole('member', matchingMember.id || inviteData.member_id);
+    onNavigate('/member/dashboard');
+  }, 1500);
 };
 
   return (
@@ -157,6 +163,16 @@ useEffect(() => {
                 <input type="tel" className="form-input" value={phone} onChange={(e) => setPhone(e.target.value)} required />
               </div>
 
+              <div className="form-group">
+                <label className="form-label">Create Password</label>
+                <div style={{ position: 'relative' }}>
+                  <input type={showPassword ? 'text' : 'password'} className="form-input" value={password} onChange={(e) => setPassword(e.target.value)} required style={{ paddingRight: '2.5rem' }} />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', padding: 0 }}>
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+
               {schedule.length > 0 && (
                 <div className="form-group">
                   <label className="form-label">Select Preferred Rotation Slot</label>
@@ -182,16 +198,7 @@ useEffect(() => {
           <div style={{ textAlign: 'center', padding: '2rem 1rem' }}>
             <CheckCircle2 size={54} color="var(--color-emerald-600)" style={{ margin: '0 auto 1rem' }} />
             <h3 style={{ fontSize: '1.4rem', color: 'var(--color-emerald-950)', marginBottom: '0.5rem' }}>Invitation Accepted!</h3>
-            <p style={{ fontSize: '0.85rem', color: 'var(--color-slate-600)' }}>Welcome to {group?.name}. Use your Member Code to access your portal.</p>
-            {matchingMember?.uniqueCode ? (
-              <div style={{ marginTop: '1rem', padding: '0.85rem', background: 'var(--color-gold-100)', borderRadius: '8px' }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--color-slate-600)' }}>Your Member Code</div>
-                <strong style={{ fontSize: '1.2rem', letterSpacing: '0.08em' }}>{matchingMember.uniqueCode}</strong>
-              </div>
-            ) : (
-              <p role="alert" style={{ color: '#b91c1c', fontSize: '0.85rem', marginTop: '0.75rem' }}>Your Member Code could not be loaded. Please contact your Agent.</p>
-            )}
-            <button type="button" className="btn-outline" onClick={() => onNavigate('/member/login')} style={{ marginTop: '1rem' }}>Go to Member Portal</button>
+            <p style={{ fontSize: '0.85rem', color: 'var(--color-slate-600)' }}>Welcome to {group?.name}. Redirecting to your member dashboard...</p>
           </div>
         )}
       </div>

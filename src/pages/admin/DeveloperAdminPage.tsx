@@ -146,6 +146,7 @@ updateAgentPaymentConfigForAgent(agent.id, {
   momoNumber: momoNumber,
   momoProvider: network,
   paystackSubaccountCode: data.subaccount_code,
+  // @ts-ignore - store recipient too if you want it later
   paystackRecipientCode: data.recipient_code,
 });
 alert(`✅ Subaccount created & SAVED for ${fullName}!\nCode: ${data.subaccount_code}\n\nAgent dashboard will now show ✅ Connected.`);

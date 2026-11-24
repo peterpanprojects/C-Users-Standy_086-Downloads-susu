@@ -1,11 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useSusu } from '../../context/SusuContext';
 import {
   ShieldCheck,
   Key,
   Link as LinkIcon,
   ArrowRight,
-  AlertCircle
+  AlertCircle,
+  Users,
+  CheckCircle2
 } from 'lucide-react';
 
 interface MemberPortalPageProps {
@@ -17,12 +19,8 @@ export const MemberPortalPage: React.FC<MemberPortalPageProps> = ({
   onNavigate,
   initialTab = 'token'
 }) => {
-  const { loginMemberWithCode, members } = useSusu();
+  const { loginWithUniqueCode, members, group } = useSusu();
   const [activeTab, setActiveTab] = useState<'token' | 'code'>(initialTab);
-
-  useEffect(() => {
-    setActiveTab(initialTab);
-  }, [initialTab]);
 
   // Invite Token Form state
   const [tokenInput, setTokenInput] = useState('');
@@ -31,7 +29,6 @@ export const MemberPortalPage: React.FC<MemberPortalPageProps> = ({
   // Unique Code Form state
   const [uniqueCode, setUniqueCode] = useState('');
   const [codeError, setCodeError] = useState<string | null>(null);
-  const [requestingSignIn, setRequestingSignIn] = useState(false);
 
   const handleTokenSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,7 +59,7 @@ export const MemberPortalPage: React.FC<MemberPortalPageProps> = ({
     }
   };
 
-  const handleCodeSubmit = async (e: React.FormEvent) => {
+  const handleCodeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setCodeError(null);
 
@@ -72,14 +69,13 @@ export const MemberPortalPage: React.FC<MemberPortalPageProps> = ({
       return;
     }
 
-    setRequestingSignIn(true);
-    try {
-      await loginMemberWithCode(cleanCode);
+    const success = loginWithUniqueCode(cleanCode);
+    if (success) {
       onNavigate('/member/dashboard');
-    } catch (error) {
-      setCodeError(error instanceof Error ? error.message : 'Unable to sign in with that Member Code.');
-    } finally {
-      setRequestingSignIn(false);
+    } else {
+      setCodeError(
+        'Unrecognized Member Code. Please check the code assigned by your Agent or contact your group organizer.'
+      );
     }
   };
 
@@ -107,7 +103,7 @@ export const MemberPortalPage: React.FC<MemberPortalPageProps> = ({
           </h1>
 
           <p style={{ fontSize: '0.88rem', color: 'var(--color-slate-600)' }}>
-          Join your Susu circle with an invitation link or sign in with your Member Code.
+            Join your Susu circle with an invitation link or sign in with your unique member code.
           </p>
         </div>
 
@@ -277,7 +273,7 @@ export const MemberPortalPage: React.FC<MemberPortalPageProps> = ({
               <div style={{ fontWeight: 800, marginBottom: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                 <Key size={15} /> Existing Member Access
               </div>
-              Enter the <strong>Unique Member Code</strong> assigned by your Agent to access your member portal.
+              Contributing circle members sign in directly using the <strong>Unique Member Code</strong> assigned by their group Agent.
             </div>
 
             {codeError && (
@@ -299,6 +295,7 @@ export const MemberPortalPage: React.FC<MemberPortalPageProps> = ({
                 <span>{codeError}</span>
               </div>
             )}
+
             <form onSubmit={handleCodeSubmit}>
               <div className="form-group">
                 <label className="form-label">Enter Your Unique Member Code *</label>
@@ -325,7 +322,6 @@ export const MemberPortalPage: React.FC<MemberPortalPageProps> = ({
                 type="submit"
 
                 className="btn-primary"
-                disabled={requestingSignIn}
                 style={{
                   width: '100%',
                   justifyContent: 'center',
@@ -334,7 +330,7 @@ export const MemberPortalPage: React.FC<MemberPortalPageProps> = ({
                   marginTop: '0.5rem'
                 }}
               >
-                {requestingSignIn ? 'Signing in…' : 'Sign In with Member Code'} <ArrowRight size={18} />
+                Access Member Dashboard <ArrowRight size={18} />
               </button>
             </form>
           </div>

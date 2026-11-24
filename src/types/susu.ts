@@ -216,10 +216,8 @@ export interface PayoutDisbursement {
   poolAmount: number;
   transferAmount: number;
   status: PayoutDisbursementStatus;
-  failureReason?: string;
   transferReference?: string;
   proofPath?: string;
-  proofUrl?: string;
   agentSentAt?: string;
   memberResponse?: 'received' | 'not_received';
   memberRespondedAt?: string;
