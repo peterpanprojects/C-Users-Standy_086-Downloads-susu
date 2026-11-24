@@ -67,6 +67,7 @@ export interface AgentPaymentConfig {
   autoSendSmsReceipts: boolean;
   requireCashReceiptProof: boolean;
   paystackSubaccountCode?: string;
+  paystackRecipientCode?: string;
   customReferencePrefix: string;
 }
 
@@ -193,6 +194,35 @@ export interface PayoutScheduleWeek {
   expectedPoolAmount: number; // fixedDailyAmount * 7 * N
   paidOutAt?: string;
   isAvailable?: boolean;
+}
+
+export type PayoutDisbursementStatus =
+  | 'transferring_to_agent'
+  | 'awaiting_agent'
+  | 'sent_to_member'
+  | 'member_received'
+  | 'member_disputed'
+  | 'transfer_failed';
+
+export interface PayoutDisbursement {
+  id: string;
+  groupId: string;
+  agentId: string;
+  memberId: string;
+  weekNumber: number;
+  weekStartDate: string;
+  weekEndDate: string;
+  currency: string;
+  poolAmount: number;
+  transferAmount: number;
+  status: PayoutDisbursementStatus;
+  failureReason?: string;
+  transferReference?: string;
+  proofPath?: string;
+  proofUrl?: string;
+  agentSentAt?: string;
+  memberResponse?: 'received' | 'not_received';
+  memberRespondedAt?: string;
 }
 
 export interface DailyPayment {

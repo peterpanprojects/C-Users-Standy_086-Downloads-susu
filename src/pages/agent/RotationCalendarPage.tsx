@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useSusu } from '../../context/SusuContext';
-import { Calendar, Lock, ArrowUp, ArrowDown, Shuffle, Info, CheckCircle2, ShieldCheck, Banknote } from 'lucide-react';
+import { Calendar, Lock, ArrowUp, ArrowDown, Shuffle, CheckCircle2, ShieldCheck, Upload, ExternalLink } from 'lucide-react';
 import { getWeekDateRangeFormatted } from '../../utils/dates';
 
 export const RotationCalendarPage: React.FC = () => {
@@ -14,12 +14,11 @@ export const RotationCalendarPage: React.FC = () => {
     setActiveGroupId,
     reorderCalendar,
     shuffleCalendar,
-    // This function should exist in your SusuContext - if not, tell me
-    // @ts-ignore
-    markWeekPaidOut,
-    // @ts-ignore
-    processPayout
+    payoutDisbursements,
+    uploadPayoutProof
   } = useSusu();
+  const [uploadingPayoutId, setUploadingPayoutId] = useState<string | null>(null);
+  const [payoutError, setPayoutError] = useState<string | null>(null);
 
   const agentGroupsList = myGroups;
 
@@ -34,22 +33,16 @@ export const RotationCalendarPage: React.FC = () => {
   const currentWeekIdx = schedule.findIndex((s) => s.status === 'current');
   const safeCurrentIdx = currentWeekIdx >= 0 ? currentWeekIdx : 0;
 
-  const handleManualPayout = (week: any) => {
-    const confirmed = window.confirm(
-      `MANUAL PAYOUT CONFIRMATION\n\nDid you give ${group.currency}${week.expectedPoolAmount.toLocaleString()} CASH / MoMo to ${week.memberName}?\n\nThis will mark Week ${week.weekNumber} as Paid Out and move to next member.`
-    );
-    if (!confirmed) return;
-
-    // Try to call your context function if it exists
-    if (typeof markWeekPaidOut === 'function') {
-      markWeekPaidOut(week.id);
-    } else if (typeof processPayout === 'function') {
-      processPayout(week.id);
-    } else {
-      // Fallback: if you don't have function yet, just alert
-      // We will create the function in SusuContext next
-      alert(`Payout recorded locally for ${week.memberName}. Now you need to add markWeekPaidOut() in SusuContext.`);
-      console.log('Payout for week:', week);
+  const handleUploadProof = async (payoutId: string, file?: File) => {
+    if (!file) return;
+    setPayoutError(null);
+    setUploadingPayoutId(payoutId);
+    try {
+      await uploadPayoutProof(payoutId, file);
+    } catch (error) {
+      setPayoutError(error instanceof Error ? error.message : 'Unable to upload the receipt.');
+    } finally {
+      setUploadingPayoutId(null);
     }
   };
 
@@ -112,9 +105,14 @@ export const RotationCalendarPage: React.FC = () => {
       >
         <ShieldCheck size={24} color="var(--color-emerald-700)" />
         <div>
-          <strong>Manual Payout Flow:</strong> When it's payout day, withdraw from your Paystack balance → Give CASH/MoMo to member → Click "Mark as Paid Out" below.
+          <strong>Payout flow:</strong> After Sunday's contributions are verified, Paystack transfers the online-collected portion to the Agent. The Agent then pays the scheduled member and uploads proof here. Any cash contributions are handled by the Agent.
         </div>
       </div>
+      {payoutError && (
+        <div role="alert" style={{ background: '#fee2e2', color: '#991b1b', borderRadius: 8, padding: '0.75rem 1rem', marginBottom: '1rem' }}>
+          {payoutError}
+        </div>
+      )}
 
       <div className="card">
         <div className="table-responsive">
@@ -179,25 +177,43 @@ export const RotationCalendarPage: React.FC = () => {
                       </span>
                     </td>
                     <td style={{ textAlign: 'right' }}>
-                      {isCurrentWeek ? (
-                        <button
-                          onClick={() => handleManualPayout(week)}
-                          style={{
-                            background: '#16a34a',
-                            color: 'white',
-                            border: 'none',
-                            padding: '0.5rem 1rem',
-                            borderRadius: '8px',
-                            fontWeight: 800,
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '0.4rem'
-                          }}
-                        >
-                          <Banknote size={16} /> Mark as Paid Out
-                        </button>
-                      ) : !isLocked ? (
+                      {(() => {
+                        const payout = payoutDisbursements.find(record => record.groupId === group.id && record.weekNumber === week.weekNumber);
+                        if (!payout) return <span style={{ fontSize: '0.78rem', color: 'var(--color-slate-500)' }}>Waiting for verified Sunday collections</span>;
+                        if (payout.status === 'transferring_to_agent') return <span style={{ fontSize: '0.78rem', color: '#92400e' }}>Paystack is transferring {payout.currency}{payout.transferAmount.toLocaleString()} to you</span>;
+                        if (payout.status === 'transfer_failed') return <span style={{ fontSize: '0.78rem', color: '#b91c1c' }}>Agent transfer failed — contact Super Admin</span>;
+                        if (payout.status === 'awaiting_agent') {
+                          return (
+                            <label style={{ background: '#16a34a', color: 'white', borderRadius: 8, padding: '0.5rem 0.8rem', fontWeight: 800, cursor: uploadingPayoutId ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <Upload size={15} /> {uploadingPayoutId === payout.id ? 'Uploading…' : `Upload receipt & mark sent (${payout.currency}${payout.poolAmount.toLocaleString()})`}
+                              <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" disabled={Boolean(uploadingPayoutId)} onChange={event => { void handleUploadProof(payout.id, event.target.files?.[0]); event.currentTarget.value = ''; }} style={{ display: 'none' }} />
+                            </label>
+                          );
+                        }
+                        if (payout.status === 'member_disputed') {
+                          return (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.5rem', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '0.78rem', color: '#b91c1c' }}>Member reports not received</span>
+                              <label style={{ background: '#16a34a', color: 'white', borderRadius: 8, padding: '0.5rem 0.8rem', fontWeight: 800, cursor: uploadingPayoutId ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <Upload size={15} /> {uploadingPayoutId === payout.id ? 'Uploading…' : 'Upload updated proof'}
+                                <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" disabled={Boolean(uploadingPayoutId)} onChange={event => { void handleUploadProof(payout.id, event.target.files?.[0]); event.currentTarget.value = ''; }} style={{ display: 'none' }} />
+                              </label>
+                            </div>
+                          );
+                        }
+                        if (payout.status === 'sent_to_member' || payout.status === 'member_received') {
+                          return (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.4rem', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '0.78rem', color: payout.status === 'member_disputed' ? '#b91c1c' : '#166534' }}>
+                                {payout.status === 'member_received' ? 'Member confirmed' : 'Receipt uploaded'}
+                              </span>
+                              {payout.proofUrl && <a href={payout.proofUrl} target="_blank" rel="noreferrer" aria-label="View payout receipt"><ExternalLink size={16} /></a>}
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+                      {!isCurrentWeek && !isLocked ? (
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.3rem' }}>
                           <button
                             className="btn-outline"
@@ -218,7 +234,7 @@ export const RotationCalendarPage: React.FC = () => {
                             <ArrowDown size={14} />
                           </button>
                         </div>
-                      ) : (
+                      ) : !isCurrentWeek ? (
                         <span style={{ fontSize: '0.75rem', color: 'var(--color-slate-400)', fontStyle: 'italic' }}>
                           <CheckCircle2 size={14} style={{ display: 'inline' }} /> Done
                         </span>

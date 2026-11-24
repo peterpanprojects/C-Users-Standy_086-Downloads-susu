@@ -9,6 +9,7 @@ import {
   GroupMember,
   LiveSupportConfig,
   PaymentMethod,
+  PayoutDisbursement,
   PayoutScheduleWeek,
   SuperAdminPaymentConfig,
   SusuGroup,
@@ -53,6 +54,10 @@ export interface SusuContextType {
   setActiveGroupId: (groupId: string) => void;
   members: GroupMember[];
   schedule: PayoutScheduleWeek[];
+  payoutDisbursements: PayoutDisbursement[];
+  refreshPayoutDisbursements: () => Promise<void>;
+  uploadPayoutProof: (payoutId: string, file: File) => Promise<void>;
+  respondToPayout: (payoutId: string, response: 'received' | 'not_received') => Promise<void>;
   payments: DailyPayment[];
   posts: FeedPost[];
   agentAccount: AgentAccount;
@@ -82,6 +87,7 @@ export interface SusuContextType {
   deleteAgent: (agentIdOrOptions?: string | { resetGroup?: boolean }, options?: { resetGroup?: boolean }) => void;
   updateMemberProfile: (memberId: string, partial: Partial<GroupMember>) => void;
   loginWithUniqueCode: (code: string) => boolean;
+  requestMemberAccess: (identifier: string) => Promise<void>;
   inviteMember: (name: string, email: string, phone: string) => Promise<{ token: string; inviteUrl: string; uniqueCode: string }>;
   acceptInviteToken: (token: string, name: string, phone: string) => Promise<boolean>;
   removeMember: (memberId: string) => void;
@@ -446,7 +452,54 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
 
-        if (!data) throw new Error('No agent profile is linked to the signed-in Supabase user.');
+        if (!data) {
+          const { data: userProfile, error: profileError } = await supabase
+            .from('users')
+            .select('role')
+            .eq('id', user.id)
+            .maybeSingle();
+          if (profileError) throw profileError;
+          if (userProfile?.role === 'super_admin') {
+            if (mounted) setCurrentUserRole('super_admin');
+            return;
+          }
+
+          let { data: member, error: memberError } = await supabase
+            .from('group_members')
+            .select('id, group_id, user_id')
+            .eq('user_id', user.id)
+            .order('joined_at', { ascending: true })
+            .limit(1)
+            .maybeSingle();
+          if (memberError) throw memberError;
+          if (!member && user.email) {
+            const email = user.email.toLowerCase();
+            const { error: linkError } = await supabase
+              .from('group_members')
+              .update({ user_id: user.id })
+              .ilike('email', email);
+            if (linkError) throw linkError;
+            const result = await supabase
+              .from('group_members')
+              .select('id, group_id, user_id')
+              .eq('user_id', user.id)
+              .order('joined_at', { ascending: true })
+              .limit(1)
+              .maybeSingle();
+            member = result.data;
+            if (result.error) throw result.error;
+          }
+          if (!member) throw new Error('No member profile is linked to the signed-in Supabase user.');
+          if (mounted) {
+            setMembers(prev => prev.map(item => item.userId === `usr-${item.id}` && item.email.toLowerCase() === (user.email || '').toLowerCase()
+              ? { ...item, userId: user.id }
+              : item));
+            setActiveMemberIdState(member.id);
+            setActiveGroupIdState(member.group_id);
+            setCurrentUserRole('member');
+          }
+          return;
+        }
         const restoredAgent = mapAgentAccount(data);
         if (mounted) {
           setAgents(prev => [restoredAgent, ...prev.filter(agent => agent.id !== restoredAgent.id)]);
@@ -619,6 +672,7 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
             momoName: (merged as any).momoName || merged.momoAccountName || '',
             momoAccountName: merged.momoAccountName || (merged as any).momoName || '',
             subaccountCode: (merged as any).subaccountCode || (merged as any).paystackSubaccountCode || '',
+            paystackRecipientCode: merged.paystackRecipientCode || (merged as any).recipientCode || '',
             payoutMethod: merged.payoutMethod || 'momo',
             momoProvider: merged.momoProvider || 'MTN',
             bankName: merged.bankName || '',
@@ -656,6 +710,7 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
             momoName: (merged as any).momoName || merged.momoAccountName || '',
             momoAccountName: merged.momoAccountName || (merged as any).momoName || '',
             subaccountCode: (merged as any).subaccountCode || (merged as any).paystackSubaccountCode || '',
+            paystackRecipientCode: merged.paystackRecipientCode || (merged as any).recipientCode || '',
             payoutMethod: merged.payoutMethod || 'momo',
             momoProvider: merged.momoProvider || 'MTN',
             bankName: merged.bankName || '',
@@ -678,6 +733,41 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const [schedule, setSchedule] = useState<PayoutScheduleWeek[]>([]);
+  const [payoutDisbursements, setPayoutDisbursements] = useState<PayoutDisbursement[]>([]);
+  const refreshPayoutDisbursements = React.useCallback(async () => {
+    const records = await DatabaseService.loadPayoutDisbursements();
+    setPayoutDisbursements(records);
+  }, []);
+
+  const uploadPayoutProof = async (payoutId: string, file: File) => {
+    if (currentUserRole !== 'agent') throw new Error('Only the group agent can upload payout proof.');
+    await DatabaseService.uploadPayoutProof(payoutId, file);
+    await refreshPayoutDisbursements();
+  };
+
+  const respondToPayout = async (payoutId: string, response: 'received' | 'not_received') => {
+    if (currentUserRole !== 'member' || !activeMemberId) {
+      throw new Error('Only the scheduled member can confirm or dispute this payout.');
+    }
+    await DatabaseService.respondToPayout(payoutId, response);
+    await refreshPayoutDisbursements();
+  };
+
+  useEffect(() => {
+    if (currentUserRole === 'visitor') {
+      setPayoutDisbursements([]);
+      return;
+    }
+    const refresh = () => {
+      refreshPayoutDisbursements().catch(error => {
+        console.error('Unable to load payout records:', error);
+      });
+    };
+    refresh();
+    const intervalId = window.setInterval(refresh, 30000);
+    return () => window.clearInterval(intervalId);
+  }, [currentUserRole, activeMemberId, activeGroupId, refreshPayoutDisbursements]);
+
   useEffect(() => {
     if (!group) { setSchedule([]); return; }
     const groupMembers = members.filter(m => m.groupId === group.id);
@@ -686,12 +776,46 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [isDbLoaded, setIsDbLoaded] = useState(false);
 
+  useEffect(() => {
+    if (currentUserRole !== 'member' || !activeMemberId || !isDbLoaded || !supabase) return;
+    const activeMember = members.find(member => member.id === activeMemberId);
+    if (!activeMember) return;
+
+    let cancelled = false;
+    const linkMemberIdentity = async () => {
+      const { data, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      const authUser = data.user;
+      if (!authUser?.email || authUser.email.toLowerCase() !== activeMember.email.toLowerCase()) return;
+
+      const normalizedEmail = authUser.email.toLowerCase();
+      const memberIds = members
+        .filter(member => member.email.toLowerCase() === normalizedEmail)
+        .map(member => member.id);
+      if (!memberIds.length || memberIds.every(id => members.find(member => member.id === id)?.userId === authUser.id)) return;
+
+      const { error } = await supabase.from('group_members').update({ user_id: authUser.id }).in('id', memberIds);
+      if (error) throw error;
+      if (!cancelled) {
+        setMembers(previous => previous.map(member => memberIds.includes(member.id)
+          ? { ...member, userId: authUser.id }
+          : member));
+      }
+    };
+    linkMemberIdentity().catch(error => {
+      console.error('Unable to link member sign-in to the member profile:', error);
+    });
+
+    return () => { cancelled = true; };
+  }, [currentUserRole, activeMemberId, isDbLoaded, members]);
+
   // 1. Load main data from DB - FIXED NOT TO WIPE
   useEffect(() => {
     DatabaseService.loadState().then((dbState) => {
       setGroups(dbState.groups || (dbState.group ? [dbState.group] : []));
       setMembers(dbState.members || []);
       setPayments(dbState.payments || []);
+      setPayoutDisbursements(dbState.payoutDisbursements || []);
       setPosts(dbState.posts || []);
       
       if (dbState.agents && dbState.agents.length > 0) {
@@ -1032,6 +1156,36 @@ const createAgent = async (data: Partial<AgentAccount>, password: string): Promi
     const found = members.find(m => (m.uniqueCode && m.uniqueCode.toUpperCase() === trimmed) || (m.inviteToken && m.inviteToken.toLowerCase() === code.trim().toLowerCase()));
     if (found) { setRole('member', found.id); return true; }
     return false;
+  };
+
+  const requestMemberAccess = async (identifier: string): Promise<void> => {
+    if (!supabase) throw new Error('Member sign-in is unavailable because Supabase is not configured.');
+    const value = identifier.trim();
+    const member = members.find(item =>
+      item.uniqueCode.toLowerCase() === value.toLowerCase() ||
+      item.inviteToken.toLowerCase() === value.toLowerCase() ||
+      item.email.toLowerCase() === value.toLowerCase()
+    );
+    if (!member && !value.includes('@')) throw new Error('No member account matched that code or email.');
+    let memberEmail = member?.email;
+    if (!memberEmail && value.includes('@')) {
+      const { data, error } = await supabase
+        .from('group_members')
+        .select('email')
+        .ilike('email', value.toLowerCase())
+        .limit(1)
+        .maybeSingle();
+      if (error) throw new Error(`Unable to find the member email: ${error.message}`);
+      memberEmail = data?.email;
+    }
+    if (!memberEmail || !memberEmail.includes('@')) {
+      throw new Error('A valid email address must be added to your member profile before secure payout access can be enabled.');
+    }
+    const { error } = await supabase.auth.signInWithOtp({
+      email: memberEmail.toLowerCase(),
+      options: { emailRedirectTo: window.location.origin, shouldCreateUser: true }
+    });
+    if (error) throw new Error(`Unable to send the member sign-in link: ${error.message}`);
   };
 
 
@@ -1415,11 +1569,11 @@ const acceptInviteToken = async (token: string, name: string, phone: string): Pr
   return (
     <SusuContext.Provider value={{
       isAgentAuthReady,
-      currentUserRole, activeMemberId, activeUser: getActiveUser(), group, groups, myGroups, myMembers, myPayments, activeGroupId, setActiveGroupId, members, schedule, payments, posts,
+      currentUserRole, activeMemberId, activeUser: getActiveUser(), group, groups, myGroups, myMembers, myPayments, activeGroupId, setActiveGroupId, members, schedule, payoutDisbursements, refreshPayoutDisbursements, uploadPayoutProof, respondToPayout, payments, posts,
       agentAccount, agents, activeAgentId, setActiveAgentId, createAgent, signOut, refreshAgentAccount, refreshAgents, agentPaymentConfig, platformPaymentConfig, platformSettings,
       setRole, createGroup, updateGroupSettings, updateAgentPaymentConfig, updateAgentPaymentConfigForAgent, updatePlatformPaymentConfig, updatePlatformSettings,
       registerAgentKyc, activateAgentAccount, approveAgentKyc, rejectAgentKyc, updateAgentAccount, updateAgentKyc, deleteAgent,
-      updateMemberProfile, loginWithUniqueCode, inviteMember, acceptInviteToken, removeMember, deleteGroup,
+      updateMemberProfile, loginWithUniqueCode, requestMemberAccess, inviteMember, acceptInviteToken, removeMember, deleteGroup,
       markCashPayment, processPayment, reorderCalendar, remindMember, shuffleCalendar, addFeedPost, resetDemoData, resetSystemData,
       getMemberReliability, selectRotationSlot, liveSupportConfig, updateLiveSupportConfig, agentMessages, sendAgentMessage,
       notifications, markNotificationAsRead, markAllNotificationsAsRead, addNotification, clearAllNotifications

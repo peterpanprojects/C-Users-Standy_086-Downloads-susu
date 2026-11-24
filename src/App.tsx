@@ -44,6 +44,7 @@ import { MemberProfilePage } from './pages/member/MemberProfilePage';
 
 // Super Admin / Developer Page
 import { DeveloperAdminPage } from './pages/admin/DeveloperAdminPage';
+import { PayoutsTrackingPage } from './pages/admin/PayoutsTrackingPage';
 
 import './styles/global.css';
 
@@ -190,6 +191,8 @@ const AppContent: React.FC = () => {
         return <DeveloperAdminPage initialTab="groups" onNavigate={handleNavigate} />;
       case '/admin/payment-config':
         return <DeveloperAdminPage initialTab="payments" onNavigate={handleNavigate} />;
+      case '/admin/payouts':
+        return <PayoutsTrackingPage />;
 
       // Agent Protected Views
       case '/agent/dashboard':

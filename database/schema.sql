@@ -186,6 +186,41 @@ CREATE INDEX IF NOT EXISTS idx_payout_schedules_group_id ON payout_schedules(gro
 CREATE INDEX IF NOT EXISTS idx_payout_schedules_member_id ON payout_schedules(member_id);
 CREATE INDEX IF NOT EXISTS idx_payout_schedules_status ON payout_schedules(status);
 
+-- -------------------------------------------------------------------------------
+-- 6a. PAYOUT DISBURSEMENTS
+-- Tracks the platform-to-agent transfer and agent-to-member delivery proof.
+-- -------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS payout_disbursements (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL REFERENCES susu_groups(id) ON DELETE CASCADE,
+    agent_id TEXT NOT NULL REFERENCES agent_accounts(id) ON DELETE CASCADE,
+    member_id TEXT NOT NULL REFERENCES group_members(id) ON DELETE CASCADE,
+    week_number INT NOT NULL CHECK (week_number > 0),
+    week_start_date DATE NOT NULL,
+    week_end_date DATE NOT NULL,
+    currency TEXT NOT NULL,
+    pool_amount NUMERIC(12, 2) NOT NULL CHECK (pool_amount >= 0),
+    transfer_amount NUMERIC(12, 2) NOT NULL CHECK (transfer_amount >= 0),
+    status TEXT NOT NULL CHECK (status IN (
+      'transferring_to_agent', 'awaiting_agent', 'sent_to_member',
+      'member_received', 'member_disputed', 'transfer_failed'
+    )),
+    failure_reason TEXT,
+    transfer_reference TEXT UNIQUE,
+    transfer_code TEXT,
+    proof_path TEXT,
+    agent_sent_at TIMESTAMPTZ,
+    member_response TEXT CHECK (member_response IN ('received', 'not_received')),
+    member_responded_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_group_payout_week UNIQUE (group_id, week_number)
+);
+
+ALTER TABLE payout_disbursements ADD COLUMN IF NOT EXISTS failure_reason TEXT;
+CREATE INDEX IF NOT EXISTS idx_payout_disbursements_member_id ON payout_disbursements(member_id);
+CREATE INDEX IF NOT EXISTS idx_payout_disbursements_agent_id ON payout_disbursements(agent_id);
+
 -- ------------------------------------------------------------------------------
 -- 7. FEED POSTS TABLE
 -- Community announcements and organizer updates
@@ -376,6 +411,9 @@ BEFORE UPDATE ON group_members FOR EACH ROW EXECUTE FUNCTION update_timestamp_co
 CREATE OR REPLACE TRIGGER trg_payout_schedules_updated_at
 BEFORE UPDATE ON payout_schedules FOR EACH ROW EXECUTE FUNCTION update_timestamp_column();
 
+CREATE OR REPLACE TRIGGER trg_payout_disbursements_updated_at
+BEFORE UPDATE ON payout_disbursements FOR EACH ROW EXECUTE FUNCTION update_timestamp_column();
+
 CREATE OR REPLACE TRIGGER trg_payment_configs_updated_at
 BEFORE UPDATE ON payment_configs FOR EACH ROW EXECUTE FUNCTION update_timestamp_column();
 
@@ -397,12 +435,13 @@ ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payment_configs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE live_support_configs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE agent_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payout_disbursements ENABLE ROW LEVEL SECURITY;
 
 -- Permissive policies for application access (can be refined per authenticated user role in Supabase)
 -- Permissive policies for application access (drop first so rerunning this file is safe)
 DO $$ DECLARE policy_name text; table_name text;
 BEGIN
-  FOREACH table_name IN ARRAY ARRAY['users','agent_accounts','susu_groups','group_members','daily_payments','payout_schedules','feed_posts','notifications','payment_configs','live_support_configs','agent_messages']
+  FOREACH table_name IN ARRAY ARRAY['users','agent_accounts','susu_groups','group_members','daily_payments','payout_schedules','feed_posts','notifications','payment_configs','live_support_configs','agent_messages','payout_disbursements']
   LOOP
     FOR policy_name IN
       SELECT p.polname FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid WHERE c.relname = table_name
@@ -432,3 +471,178 @@ CREATE POLICY "Notifications access" ON notifications FOR ALL USING (true) WITH 
 CREATE POLICY "Payment configs access" ON payment_configs FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Live support configs access" ON live_support_configs FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Agent messages access" ON agent_messages FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Payout participants can view disbursements" ON payout_disbursements;
+CREATE POLICY "Payout participants can view disbursements"
+  ON payout_disbursements FOR SELECT
+  USING (
+    EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role = 'super_admin')
+    OR EXISTS (
+      SELECT 1 FROM agent_accounts a
+      WHERE a.id = payout_disbursements.agent_id AND a.user_id = auth.uid()::text
+    )
+    OR EXISTS (
+      SELECT 1 FROM group_members m
+      WHERE m.id = payout_disbursements.member_id AND m.user_id = auth.uid()::text
+    )
+  );
+
+DROP POLICY IF EXISTS "Agents can update payout delivery" ON payout_disbursements;
+CREATE POLICY "Agents can update payout delivery"
+  ON payout_disbursements FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM agent_accounts a
+      WHERE a.id = payout_disbursements.agent_id AND a.user_id = auth.uid()::text
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM agent_accounts a
+      WHERE a.id = payout_disbursements.agent_id AND a.user_id = auth.uid()::text
+    )
+  );
+
+DROP POLICY IF EXISTS "Members can respond to payout" ON payout_disbursements;
+CREATE POLICY "Members can respond to payout"
+  ON payout_disbursements FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM group_members m
+      WHERE m.id = payout_disbursements.member_id AND m.user_id = auth.uid()::text
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM group_members m
+      WHERE m.id = payout_disbursements.member_id AND m.user_id = auth.uid()::text
+    )
+  );
+
+CREATE OR REPLACE FUNCTION guard_payout_disbursement_update()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF auth.role() = 'service_role' THEN
+    RETURN NEW;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM agent_accounts a
+    WHERE a.id = OLD.agent_id AND a.user_id = auth.uid()::text
+  ) THEN
+    IF OLD.status NOT IN ('awaiting_agent', 'member_disputed')
+      OR NEW.id <> OLD.id
+      OR NEW.group_id <> OLD.group_id
+      OR NEW.agent_id <> OLD.agent_id
+      OR NEW.member_id <> OLD.member_id
+      OR NEW.week_number <> OLD.week_number
+      OR NEW.week_start_date <> OLD.week_start_date
+      OR NEW.week_end_date <> OLD.week_end_date
+      OR NEW.currency <> OLD.currency
+      OR NEW.pool_amount <> OLD.pool_amount
+      OR NEW.transfer_amount <> OLD.transfer_amount
+      OR NEW.transfer_reference IS DISTINCT FROM OLD.transfer_reference
+      OR NEW.transfer_code IS DISTINCT FROM OLD.transfer_code
+      OR NEW.failure_reason IS DISTINCT FROM OLD.failure_reason
+      OR NEW.member_response IS DISTINCT FROM OLD.member_response
+      OR NEW.member_responded_at IS DISTINCT FROM OLD.member_responded_at
+      OR NEW.created_at <> OLD.created_at
+      OR NEW.status <> 'sent_to_member'
+      OR NEW.proof_path IS NULL
+      OR split_part(NEW.proof_path, '/', 1) <> OLD.id
+    THEN
+      RAISE EXCEPTION 'Agents may only submit proof of member delivery.';
+    END IF;
+    NEW.agent_sent_at := now();
+    RETURN NEW;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM group_members m
+    WHERE m.id = OLD.member_id AND m.user_id = auth.uid()::text
+  ) THEN
+    IF NEW.id <> OLD.id
+      OR NEW.group_id <> OLD.group_id
+      OR NEW.agent_id <> OLD.agent_id
+      OR NEW.member_id <> OLD.member_id
+      OR NEW.week_number <> OLD.week_number
+      OR NEW.week_start_date <> OLD.week_start_date
+      OR NEW.week_end_date <> OLD.week_end_date
+      OR NEW.currency <> OLD.currency
+      OR NEW.pool_amount <> OLD.pool_amount
+      OR NEW.transfer_amount <> OLD.transfer_amount
+      OR NEW.transfer_reference IS DISTINCT FROM OLD.transfer_reference
+      OR NEW.transfer_code IS DISTINCT FROM OLD.transfer_code
+      OR NEW.failure_reason IS DISTINCT FROM OLD.failure_reason
+      OR NEW.proof_path IS DISTINCT FROM OLD.proof_path
+      OR NEW.agent_sent_at IS DISTINCT FROM OLD.agent_sent_at
+      OR NEW.created_at <> OLD.created_at
+      OR OLD.status NOT IN ('sent_to_member', 'member_disputed')
+      OR NEW.member_response IS NULL
+      OR NEW.member_response NOT IN ('received', 'not_received')
+      OR (NEW.member_response = 'received' AND NEW.status <> 'member_received')
+      OR (NEW.member_response = 'not_received' AND NEW.status <> 'member_disputed')
+    THEN
+      RAISE EXCEPTION 'Members may only confirm or dispute a sent payout.';
+    END IF;
+    NEW.member_responded_at := now();
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION 'Not authorized to update this payout.';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_guard_payout_disbursement_update ON payout_disbursements;
+CREATE TRIGGER trg_guard_payout_disbursement_update
+  BEFORE UPDATE ON payout_disbursements
+  FOR EACH ROW EXECUTE FUNCTION guard_payout_disbursement_update();
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES ('payout-proofs', 'payout-proofs', false, 8388608, ARRAY['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
+ON CONFLICT (id) DO UPDATE SET public = false, file_size_limit = 8388608,
+  allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+
+DROP POLICY IF EXISTS "Payout participants can view proof files" ON storage.objects;
+CREATE POLICY "Payout participants can view proof files"
+  ON storage.objects FOR SELECT
+  USING (
+    bucket_id = 'payout-proofs'
+    AND EXISTS (
+      SELECT 1 FROM payout_disbursements p
+      WHERE p.proof_path = name
+        AND (
+          EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role = 'super_admin')
+          OR EXISTS (SELECT 1 FROM agent_accounts a WHERE a.id = p.agent_id AND a.user_id = auth.uid()::text)
+          OR EXISTS (SELECT 1 FROM group_members m WHERE m.id = p.member_id AND m.user_id = auth.uid()::text)
+        )
+    )
+  );
+
+DROP POLICY IF EXISTS "Agents can upload payout proof files" ON storage.objects;
+CREATE POLICY "Agents can upload payout proof files"
+  ON storage.objects FOR INSERT
+  WITH CHECK (
+    bucket_id = 'payout-proofs'
+    AND EXISTS (
+      SELECT 1 FROM payout_disbursements p
+      JOIN agent_accounts a ON a.id = p.agent_id
+      WHERE a.user_id = auth.uid()::text
+        AND split_part(name, '/', 1) = p.id
+        AND p.status IN ('awaiting_agent', 'member_disputed')
+    )
+  );
+
+DROP POLICY IF EXISTS "Agents can remove unlinked payout proof files" ON storage.objects;
+CREATE POLICY "Agents can remove unlinked payout proof files"
+  ON storage.objects FOR DELETE
+  USING (
+    bucket_id = 'payout-proofs'
+    AND EXISTS (
+      SELECT 1 FROM payout_disbursements p
+      JOIN agent_accounts a ON a.id = p.agent_id
+      WHERE a.user_id = auth.uid()::text
+        AND split_part(name, '/', 1) = p.id
+        AND p.proof_path IS DISTINCT FROM name
+    )
+  );

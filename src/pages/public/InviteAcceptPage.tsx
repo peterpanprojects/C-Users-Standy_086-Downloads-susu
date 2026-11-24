@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSusu } from '../../context/SusuContext';
-import { ShieldCheck, CheckCircle2, ArrowRight, Lock, Eye, EyeOff } from 'lucide-react';
+import { ShieldCheck, CheckCircle2, ArrowRight } from 'lucide-react';
 import { supabase } from '../../services/db';
 
 interface InviteAcceptPageProps {
@@ -9,17 +9,16 @@ interface InviteAcceptPageProps {
 }
 
 export const InviteAcceptPage: React.FC<InviteAcceptPageProps> = ({ token, onNavigate }) => {
-  const { acceptInviteToken, setRole, group, members, schedule, selectRotationSlot } = useSusu();
+  const { acceptInviteToken, requestMemberAccess, group, members, schedule, selectRotationSlot } = useSusu();
 
   const [loading, setLoading] = useState(true);
   const [inviteValid, setInviteValid] = useState(false);
   const [inviteData, setInviteData] = useState<any>(null);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<number>(1);
   const [accepted, setAccepted] = useState(false);
+  const [accessError, setAccessError] = useState<string | null>(null);
 
 
 
@@ -126,10 +125,13 @@ useEffect(() => {
   }
 
   setAccepted(true);
-  setTimeout(() => {
-    setRole('member', matchingMember.id || inviteData.member_id);
-    onNavigate('/member/dashboard');
-  }, 1500);
+  try {
+    const memberEmail = inviteData.member_email || inviteData.invited_email;
+    if (!memberEmail) throw new Error('Ask your Agent to add an email address to the invitation before signing in.');
+    await requestMemberAccess(memberEmail);
+  } catch (error) {
+    setAccessError(error instanceof Error ? error.message : 'Unable to send a secure member sign-in link.');
+  }
 };
 
   return (
@@ -163,16 +165,6 @@ useEffect(() => {
                 <input type="tel" className="form-input" value={phone} onChange={(e) => setPhone(e.target.value)} required />
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Create Password</label>
-                <div style={{ position: 'relative' }}>
-                  <input type={showPassword ? 'text' : 'password'} className="form-input" value={password} onChange={(e) => setPassword(e.target.value)} required style={{ paddingRight: '2.5rem' }} />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', padding: 0 }}>
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-              </div>
-
               {schedule.length > 0 && (
                 <div className="form-group">
                   <label className="form-label">Select Preferred Rotation Slot</label>
@@ -198,7 +190,9 @@ useEffect(() => {
           <div style={{ textAlign: 'center', padding: '2rem 1rem' }}>
             <CheckCircle2 size={54} color="var(--color-emerald-600)" style={{ margin: '0 auto 1rem' }} />
             <h3 style={{ fontSize: '1.4rem', color: 'var(--color-emerald-950)', marginBottom: '0.5rem' }}>Invitation Accepted!</h3>
-            <p style={{ fontSize: '0.85rem', color: 'var(--color-slate-600)' }}>Welcome to {group?.name}. Redirecting to your member dashboard...</p>
+            <p style={{ fontSize: '0.85rem', color: 'var(--color-slate-600)' }}>Welcome to {group?.name}. A secure sign-in link has been sent to {inviteData?.member_email || inviteData?.invited_email || 'your registered email'}. Open it on this device to access your member portal.</p>
+            {accessError && <p role="alert" style={{ color: '#b91c1c', fontSize: '0.85rem', marginTop: '0.75rem' }}>{accessError}</p>}
+            <button type="button" className="btn-outline" onClick={() => onNavigate('/member/login')} style={{ marginTop: '1rem' }}>Return to Member Portal</button>
           </div>
         )}
       </div>

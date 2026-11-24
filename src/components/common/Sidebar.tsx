@@ -248,6 +248,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span>Susu Groups</span>
               </button>
               <button
+                className={navItemClass('/admin/payouts')}
+                onClick={() => handleNavClick('/admin/payouts')}
+              >
+                <CreditCard size={18} className="sidebar-icon" />
+                <span>Payout Oversight</span>
+              </button>
+              <button
                 className={navItemClass('/agent/members')}
                 onClick={() => handleNavClick('/agent/members')}
               >

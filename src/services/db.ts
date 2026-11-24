@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { AgentAccount, AgentPaymentConfig, AppNotification, DailyPayment, FeedPost, GroupMember, LiveSupportConfig, SuperAdminPaymentConfig, SusuGroup } from '../types/susu';
+import { AgentAccount, AgentPaymentConfig, AppNotification, DailyPayment, FeedPost, GroupMember, LiveSupportConfig, PayoutDisbursement, SuperAdminPaymentConfig, SusuGroup } from '../types/susu';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -15,7 +15,30 @@ export interface DatabaseState {
   posts: FeedPost[]; agentAccount: AgentAccount | null; agents?: AgentAccount[];
   agentPaymentConfig: AgentPaymentConfig | null; agentPaymentConfigs?: Record<string, AgentPaymentConfig>;
   platformPaymentConfig: SuperAdminPaymentConfig | null; liveSupportConfig: LiveSupportConfig | null; notifications: AppNotification[];
-  agentMessages?: any[];
+  agentMessages?: any[]; payoutDisbursements?: PayoutDisbursement[];
+}
+
+function mapPayoutDisbursement(row: any, proofUrl?: string): PayoutDisbursement {
+  return {
+    id: row.id,
+    groupId: row.group_id,
+    agentId: row.agent_id,
+    memberId: row.member_id,
+    weekNumber: row.week_number,
+    weekStartDate: row.week_start_date,
+    weekEndDate: row.week_end_date,
+    currency: row.currency,
+    poolAmount: Number(row.pool_amount),
+    transferAmount: Number(row.transfer_amount),
+    status: row.status,
+    failureReason: row.failure_reason || undefined,
+    transferReference: row.transfer_reference || undefined,
+    proofPath: row.proof_path || undefined,
+    proofUrl,
+    agentSentAt: row.agent_sent_at || undefined,
+    memberResponse: row.member_response || undefined,
+    memberRespondedAt: row.member_responded_at || undefined
+  };
 }
 
 function hasSubmittedKyc(kycData: any): boolean {
@@ -187,7 +210,8 @@ export const DatabaseService = {
           paymentConfigsRes,
           liveConfigRes,
           notifsRes,
-          agentMessagesRes
+          agentMessagesRes,
+          payoutDisbursementsRes
         ] = await Promise.all([
           supabase.from('susu_groups').select('*').order('created_at', { ascending: false }),
           supabase.from('group_members').select('*').order('position_in_rotation', { ascending: true }),
@@ -197,7 +221,8 @@ export const DatabaseService = {
           supabase.from('payment_configs').select('*'),
           supabase.from('live_support_configs').select('*').limit(1).maybeSingle(),
           supabase.from('notifications').select('*').order('created_at', { ascending: false }),
-          supabase.from('agent_messages').select('*').order('created_at', { ascending: true })
+          supabase.from('agent_messages').select('*').order('created_at', { ascending: true }),
+          supabase.from('payout_disbursements').select('*').order('week_start_date', { ascending: false })
         ]);
 
         const groupsList: SusuGroup[] = (groupsRes.data || []).map((g: any) => ({
@@ -250,6 +275,8 @@ export const DatabaseService = {
               momoName: cfg.momoName || cfg.momoAccountName || cfg.momo_name || '',
               momoAccountName: cfg.momoAccountName || cfg.momoName || cfg.momo_name || '',
               subaccountCode: cfg.subaccountCode || cfg.subaccount_code || cfg.subaccount || '',
+              paystackSubaccountCode: cfg.paystackSubaccountCode || cfg.subaccountCode || cfg.subaccount_code || cfg.subaccount || '',
+              paystackRecipientCode: cfg.paystackRecipientCode || cfg.recipientCode || '',
               isConnected: Boolean(cfg.subaccountCode || cfg.subaccount_code || cfg.subaccount || cfg.momoNumber),
               provider: cfg.provider || 'paystack',
               payoutMethod: cfg.payoutMethod || 'momo',
@@ -309,6 +336,7 @@ export const DatabaseService = {
             createdAt: message.created_at,
             read: Boolean(message.read)
           })),
+          payoutDisbursements: (payoutDisbursementsRes.data || []).map((row: any) => mapPayoutDisbursement(row)),
         } as any;
       } catch (err) { console.error('Supabase load failed:', err); }
     }
@@ -344,6 +372,65 @@ export const DatabaseService = {
       paid_at: payment.paidAt || null
     })), { onConflict: 'id' });
     if (error) throw new Error(`Failed to save payment: ${error.message}`);
+  },
+
+  async loadPayoutDisbursements(): Promise<PayoutDisbursement[]> {
+    if (!supabase) return [];
+    const { data, error } = await supabase
+      .from('payout_disbursements')
+      .select('*')
+      .order('week_start_date', { ascending: false });
+    if (error) throw new Error(`Failed to load payout records: ${error.message}`);
+    return Promise.all((data || []).map(async (row: any) => {
+      if (!row.proof_path) return mapPayoutDisbursement(row);
+      const { data: signedUrl, error: urlError } = await supabase.storage
+        .from('payout-proofs')
+        .createSignedUrl(row.proof_path, 1800);
+      if (urlError) throw new Error(`Failed to access payout proof: ${urlError.message}`);
+      return mapPayoutDisbursement(row, signedUrl.signedUrl);
+    }));
+  },
+
+  async uploadPayoutProof(payoutId: string, file: File): Promise<void> {
+    if (!supabase) throw new Error('Supabase is not configured.');
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!allowedTypes.includes(file.type)) throw new Error('Upload a JPG, PNG, WEBP, or PDF receipt.');
+    if (file.size > 8 * 1024 * 1024) throw new Error('Receipt must be 8 MB or smaller.');
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-100) || 'receipt';
+    const path = `${payoutId}/${Date.now()}-${safeName}`;
+    const { error: uploadError } = await supabase.storage
+      .from('payout-proofs')
+      .upload(path, file, { contentType: file.type, upsert: false });
+    if (uploadError) throw new Error(`Failed to upload payout proof: ${uploadError.message}`);
+
+    const { error: updateError } = await supabase
+      .from('payout_disbursements')
+      .update({ status: 'sent_to_member', proof_path: path, agent_sent_at: new Date().toISOString() })
+      .eq('id', payoutId)
+      .eq('status', 'awaiting_agent')
+      .select('id')
+      .single();
+    if (updateError) {
+      const { error: cleanupError } = await supabase.storage.from('payout-proofs').remove([path]);
+      if (cleanupError) console.error('Unable to remove unlinked payout proof:', cleanupError.message);
+      throw new Error(`Failed to save payout proof: ${updateError.message}`);
+    }
+  },
+
+  async respondToPayout(payoutId: string, response: 'received' | 'not_received'): Promise<void> {
+    if (!supabase) throw new Error('Supabase is not configured.');
+    const { error } = await supabase
+      .from('payout_disbursements')
+      .update({
+        member_response: response,
+        status: response === 'received' ? 'member_received' : 'member_disputed',
+        member_responded_at: new Date().toISOString()
+      })
+      .eq('id', payoutId)
+      .in('status', ['sent_to_member', 'member_disputed'])
+      .select('id')
+      .single();
+    if (error) throw new Error(`Failed to save payout confirmation: ${error.message}`);
   },
 
   async getAgentKyc(agentId: string) {
@@ -520,6 +607,7 @@ export const DatabaseService = {
         momoName: cfg.momoName || cfg.momoAccountName || '',
         momoAccountName: cfg.momoAccountName || cfg.momoName || '',
         subaccountCode: cfg.subaccountCode || cfg.subaccount || '',
+        paystackRecipientCode: cfg.paystackRecipientCode || cfg.recipientCode || '',
         payoutMethod: cfg.payoutMethod || 'momo',
         momoProvider: cfg.momoProvider || 'MTN',
         bankName: cfg.bankName || '',

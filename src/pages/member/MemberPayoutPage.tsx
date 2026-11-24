@@ -11,18 +11,20 @@ import {
   AlertCircle,
   Users,
   Check,
-  Shuffle
+  Shuffle,
+  ExternalLink
 } from 'lucide-react';
 import { getDaysUntil, getWeekDateRangeFormatted } from '../../utils/dates';
 import confetti from 'canvas-confetti';
 
 export const MemberPayoutPage: React.FC = () => {
-  const { activeMemberId, members, schedule, group, selectRotationSlot } = useSusu();
+  const { activeMemberId, members, schedule, group, selectRotationSlot, payoutDisbursements, respondToPayout } = useSusu();
   const currentMember = members.find((m) => m.id === activeMemberId) || members[0];
 
   const [activeFilter, setActiveFilter] = useState<'all' | 'available' | 'mine'>('all');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [savingPayoutResponse, setSavingPayoutResponse] = useState(false);
 
   if (!currentMember || !group) {
     return (
@@ -38,6 +40,7 @@ export const MemberPayoutPage: React.FC = () => {
   }
 
   const myPayoutWeek = schedule.find((s) => s.memberId === currentMember.id);
+  const myDisbursement = payoutDisbursements.find(p => p.groupId === group.id && p.memberId === currentMember.id);
   const daysUntil = myPayoutWeek ? getDaysUntil(myPayoutWeek.weekStartDate) : 0;
   const isSlotLocked = Boolean(currentMember.slotLocked || (currentMember.inviteStatus === 'active' && myPayoutWeek));
 
@@ -75,6 +78,19 @@ export const MemberPayoutPage: React.FC = () => {
       setTimeout(() => {
         setErrorMessage(null);
       }, 5000);
+    }
+  };
+
+  const handlePayoutResponse = async (response: 'received' | 'not_received') => {
+    if (!myDisbursement) return;
+    setErrorMessage(null);
+    setSavingPayoutResponse(true);
+    try {
+      await respondToPayout(myDisbursement.id, response);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to save your payout response.');
+    } finally {
+      setSavingPayoutResponse(false);
     }
   };
 
@@ -237,6 +253,38 @@ export const MemberPayoutPage: React.FC = () => {
             </p>
           </div>
         </div>
+      )}
+
+      {myDisbursement && (
+        <section className="card" aria-live="polite" style={{ padding: '1.5rem', marginBottom: '2rem', border: '1px solid var(--color-emerald-200)' }}>
+          <h3 style={{ margin: '0 0 0.6rem', color: 'var(--color-emerald-950)' }}>Your payout delivery</h3>
+          <p style={{ margin: '0 0 0.5rem', color: 'var(--color-slate-700)' }}>
+            Week #{myDisbursement.weekNumber} · Member pool {myDisbursement.currency}{myDisbursement.poolAmount.toLocaleString()}
+          </p>
+          <p style={{ margin: '0 0 0.8rem', color: 'var(--color-slate-600)' }}>
+            {myDisbursement.status === 'transferring_to_agent' && 'Paystack is transferring the collected online contributions to your Agent.'}
+            {myDisbursement.status === 'awaiting_agent' && 'Your payout is ready for the Agent to deliver.'}
+            {myDisbursement.status === 'sent_to_member' && 'Your Agent marked the payout as sent. Please review the receipt and confirm below.'}
+            {myDisbursement.status === 'member_received' && 'You confirmed receipt of this payout.'}
+            {myDisbursement.status === 'member_disputed' && 'You reported that the payout has not arrived. Your Agent and Super Admin can see this dispute.'}
+            {myDisbursement.status === 'transfer_failed' && 'The transfer to your Agent failed. The Super Admin needs to review it.'}
+          </p>
+          {myDisbursement.proofUrl && (
+            <a href={myDisbursement.proofUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginBottom: '1rem', fontWeight: 700 }}>
+              <ExternalLink size={16} /> View Agent's payment proof
+            </a>
+          )}
+          {(myDisbursement.status === 'sent_to_member' || myDisbursement.status === 'member_disputed') && (
+            <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
+              <button type="button" className="btn-gold" disabled={savingPayoutResponse} onClick={() => void handlePayoutResponse('received')}>
+                {savingPayoutResponse ? 'Saving…' : 'I received the payment'}
+              </button>
+              <button type="button" className="btn-outline" disabled={savingPayoutResponse} onClick={() => void handlePayoutResponse('not_received')}>
+                I have not received the payment
+              </button>
+            </div>
+          )}
+        </section>
       )}
 
       {/* Available Slots Explorer & Selection Section */}

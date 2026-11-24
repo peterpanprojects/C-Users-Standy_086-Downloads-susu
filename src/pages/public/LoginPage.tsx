@@ -5,7 +5,7 @@ import { ShieldCheck, LogIn, AlertCircle, User as UserIcon, Eye, EyeOff } from '
 interface LoginPageProps { onNavigate: (path: string) => void; }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
-  const { setRole, setActiveAgentId, updateAgentAccount, members, loginWithUniqueCode } = useSusu();
+  const { setRole, setActiveAgentId, updateAgentAccount, members, requestMemberAccess } = useSusu();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -68,19 +68,37 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
 
     // 1. Super Admin
     const adminEmail = (import.meta.env.VITE_SUPER_ADMIN_EMAIL || 'admin@susu.platform').toLowerCase();
-    const adminPass = import.meta.env.VITE_SUPER_ADMIN_INITIAL_PASSWORD || '';
     if (inputLower === adminEmail || inputLower === 'superadmin' || inputLower === 'admin') {
-      if (adminPass && password !== adminPass) {
-        setErrorMessage('Invalid Super Admin password.');
-        setLoading(false); return;
-      }
       if (!password || password.length < 6) {
         setErrorMessage('Please provide your secure administrator password (min 6 characters).');
         setLoading(false); return;
       }
-      setRole('super_admin');
-      onNavigate('/admin/developer');
-      setLoading(false); return;
+      try {
+        const { supabase } = await import('../../services/db');
+        if (!supabase) throw new Error('Administrator sign-in is unavailable because Supabase is not configured.');
+        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email: adminEmail, password });
+        if (authError || !authData.user) throw new Error('Administrator email or password is incorrect.');
+        const { data: profile, error: profileError } = await supabase
+          .from('users')
+          .select('role')
+          .eq('id', authData.user.id)
+          .maybeSingle();
+        if (profileError) {
+          await supabase.auth.signOut();
+          throw profileError;
+        }
+        if (profile?.role !== 'super_admin') {
+          await supabase.auth.signOut();
+          throw new Error('This account is not authorized as a Super Admin.');
+        }
+        setRole('super_admin');
+        onNavigate('/admin/developer');
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Unable to sign in as Super Admin.');
+      } finally {
+        setLoading(false);
+      }
+      return;
     }
 
     // 2. Member - check local + try Supabase uniqueCode
@@ -91,13 +109,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
         (m.email && m.email.toLowerCase() === inputLower)
     );
     if (matchingMember) {
-      setRole('member', matchingMember.id);
-      onNavigate('/member/dashboard');
-      setLoading(false); return;
-    }
-    if (loginWithUniqueCode(input)) {
-      onNavigate('/member/dashboard');
-      setLoading(false); return;
+      try {
+        await requestMemberAccess(input);
+        setSuccessMessage(`A secure sign-in link has been sent to ${matchingMember.email}. Open it on this device to access your member portal.`);
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Unable to send a member sign-in link.');
+      } finally {
+        setLoading(false);
+      }
+      return;
     }
 
     // 3. Agent login uses Supabase Auth so the session survives refresh.
