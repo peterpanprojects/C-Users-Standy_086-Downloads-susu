@@ -4,6 +4,7 @@ export interface PaystackTransactionParams {
   amount: number; // Major currency units; converted to the provider's smallest unit at checkout.
   currency: string;
   ref: string;
+  onVerifying?: () => void;
   onSuccess: (response: { reference: string; status: string }) => void | Promise<void>;
   onClose: () => void;
 }
@@ -33,19 +34,26 @@ export function generatePaystackReference(): string {
   return `SUSU-PAY-${timestamp}-${randomStr}`;
 }
 
+let paystackScriptPromise: Promise<boolean> | null = null;
+
 export function loadPaystackScript(): Promise<boolean> {
-  return new Promise((resolve) => {
-    if ((window as any).PaystackPop) {
-      resolve(true);
-      return;
-    }
+  if ((window as any).PaystackPop) return Promise.resolve(true);
+  if (paystackScriptPromise) return paystackScriptPromise;
+
+  paystackScriptPromise = new Promise((resolve) => {
     const script = document.createElement('script');
     script.src = 'https://js.paystack.co/v1/inline.js';
     script.async = true;
-    script.onload = () => resolve(true);
+    script.onload = () => resolve(Boolean((window as any).PaystackPop));
     script.onerror = () => resolve(false);
-    document.body.appendChild(script);
+    document.head.appendChild(script);
   });
+
+  void paystackScriptPromise.then(loaded => {
+    if (!loaded) paystackScriptPromise = null;
+  });
+
+  return paystackScriptPromise;
 }
 
 export async function initializePaystackCheckout(params: PaystackTransactionParams): Promise<void> {
@@ -67,6 +75,7 @@ export async function initializePaystackCheckout(params: PaystackTransactionPara
         void (async () => {
           const reference = response.reference || params.ref;
           try {
+            params.onVerifying?.();
             await verifyPaystackTransaction(reference, params.amount, params.currency);
             await params.onSuccess({ reference, status: 'success' });
           } catch (error) {

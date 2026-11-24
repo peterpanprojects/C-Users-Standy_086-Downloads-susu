@@ -16,7 +16,7 @@ import {
   FileCheck
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { verifyPaystackTransaction } from '../../utils/paystack';
+import { loadPaystackScript, verifyPaystackTransaction } from '../../utils/paystack';
 
 interface AgentActivationPageProps {
   onNavigate: (path: string) => void;
@@ -58,17 +58,11 @@ export const AgentActivationPage: React.FC<AgentActivationPageProps> = ({ onNavi
   };
   
     const PAYSTACK_PUBLIC_KEY = getValidPaystackKey();
-  // Load Paystack LIVE script
   useEffect(() => {
-    if (!window.PaystackPop) {
-      const script = document.createElement('script');
-      script.src = 'https://js.paystack.co/v1/inline.js';
-      script.async = true;
-      document.body.appendChild(script);
-    }
-  }, [PAYSTACK_PUBLIC_KEY, platformPaymentConfig]);
+    void loadPaystackScript();
+  }, []);
 
-  const handlePayActivation = (e: React.FormEvent) => {
+  const handlePayActivation = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!PAYSTACK_PUBLIC_KEY || !PAYSTACK_PUBLIC_KEY.startsWith('pk_')) {
@@ -78,13 +72,12 @@ export const AgentActivationPage: React.FC<AgentActivationPageProps> = ({ onNavi
 
     setProcessing(true);
 
-    if (!window.PaystackPop) {
-      alert('Paystack loading... wait 2 seconds and try again');
-      setProcessing(false);
-      return;
-    }
-
     try {
+      const scriptLoaded = await loadPaystackScript();
+      if (!scriptLoaded || !window.PaystackPop) {
+        throw new Error('Paystack checkout could not be loaded. Check your connection and try again.');
+      }
+
       const callback = (response: any) => {
         void (async () => {
           try {

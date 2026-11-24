@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSusu } from '../../context/SusuContext';
 import { X, CheckCircle2, Lock, ArrowRight, ShieldCheck, Smartphone, CreditCard } from 'lucide-react';
-import { generatePaystackReference, initializePaystackCheckout } from '../../utils/paystack';
+import { generatePaystackReference, initializePaystackCheckout, loadPaystackScript } from '../../utils/paystack';
 import { calculatePlatformFee } from '../../utils/paymentFees';
 
 interface PaystackModalProps {
@@ -11,8 +11,13 @@ interface PaystackModalProps {
 export const PaystackModal: React.FC<PaystackModalProps> = ({ isOpen, onClose, selectedDates, memberId }) => {
   const { group, members, processPayment, platformPaymentConfig, agentPaymentConfig } = useSusu();
   const [processing, setProcessing] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState<'opening' | 'verifying'>('opening');
   const [completed, setCompleted] = useState(false);
   const [paymentRef, setPaymentRef] = useState('');
+
+  useEffect(() => {
+    void loadPaystackScript();
+  }, []);
 
   if (!isOpen) return null;
 
@@ -45,6 +50,7 @@ export const PaystackModal: React.FC<PaystackModalProps> = ({ isOpen, onClose, s
     }
 
     setProcessing(true);
+    setProcessingStatus('opening');
     const prefix = agentPaymentConfig.customReferencePrefix || 'SUSU-';
     const generatedRef = `${prefix}${generatePaystackReference()}`;
     setPaymentRef(generatedRef);
@@ -55,6 +61,7 @@ export const PaystackModal: React.FC<PaystackModalProps> = ({ isOpen, onClose, s
       amount: totalCharge,
       currency: group?.currency || 'GHS',
       ref: generatedRef,
+      onVerifying: () => setProcessingStatus('verifying'),
       onSuccess: async (res: any) => {
         await processPayment(currentMember.id, selectedDates, 'paystack', res.reference, platformFee);
         setProcessing(false);
@@ -99,7 +106,7 @@ export const PaystackModal: React.FC<PaystackModalProps> = ({ isOpen, onClose, s
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', color: 'var(--color-slate-500)', marginBottom: '1.5rem' }}><Lock size={14} color="var(--color-emerald-600)" /> 256-Bit SSL Encrypted by Paystack</div>
             <button className="btn-gold" onClick={handleExecutePayment} disabled={processing || isFrozen || isOnlineDisabled} style={{ width: '100%', justifyContent: 'center', padding: '0.85rem', fontSize: '1rem', opacity: (isFrozen || isOnlineDisabled)? 0.5 : 1 }}>
-              {processing? 'Verifying Transaction...' : <>{`Pay ${group?.currency}${totalCharge.toFixed(2)} Now`} <ArrowRight size={18} /></>}
+              {processing? (processingStatus === 'opening' ? 'Opening Paystack...' : 'Verifying Transaction...') : <>{`Pay ${group?.currency}${totalCharge.toFixed(2)} Now`} <ArrowRight size={18} /></>}
             </button>
             <div style={{ marginTop: '0.75rem', fontSize: '0.65rem', color: '#999', textAlign: 'center' }}>Debug Key: {(getValidPaystackKey() || 'NO_KEY').substring(0,25)}... | Env: {platformPaymentConfig.environment}</div>
           </div>
