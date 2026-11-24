@@ -5,7 +5,7 @@ import { ShieldCheck, LogIn, AlertCircle, User as UserIcon, Eye, EyeOff } from '
 interface LoginPageProps { onNavigate: (path: string) => void; }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
-  const { setRole, setActiveAgentId, updateAgentAccount, members, requestMemberAccess } = useSusu();
+  const { setRole, setActiveAgentId, updateAgentAccount, loginMemberWithCode } = useSusu();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -64,8 +64,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
     }
 
     const inputLower = input.toLowerCase();
-    const inputUpper = input.toUpperCase();
-
     // 1. Super Admin
     const adminEmail = (import.meta.env.VITE_SUPER_ADMIN_EMAIL || 'admin@susu.platform').toLowerCase();
     if (inputLower === adminEmail || inputLower === 'superadmin' || inputLower === 'admin') {
@@ -101,19 +99,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
       return;
     }
 
-    // 2. Member - check local + try Supabase uniqueCode
-    const matchingMember = members.find(
-      (m) =>
-        (m.uniqueCode && m.uniqueCode.toUpperCase() === inputUpper) ||
-        (m.inviteToken && m.inviteToken.toLowerCase() === inputLower) ||
-        (m.email && m.email.toLowerCase() === inputLower)
-    );
-    if (matchingMember) {
+    // 2. Member Code login
+    if (!input.includes('@')) {
       try {
-        await requestMemberAccess(input);
-        setSuccessMessage(`A secure sign-in link has been sent to ${matchingMember.email}. Open it on this device to access your member portal.`);
+        await loginMemberWithCode(input);
+        onNavigate('/member/dashboard');
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : 'Unable to send a member sign-in link.');
+        setErrorMessage(error instanceof Error ? error.message : 'Unable to sign in with that Member Code.');
       } finally {
         setLoading(false);
       }

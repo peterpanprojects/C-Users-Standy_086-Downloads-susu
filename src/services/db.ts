@@ -391,6 +391,31 @@ export const DatabaseService = {
     }));
   },
 
+  async loadMemberPayouts(code: string): Promise<{ memberId: string; groupId: string; payouts: PayoutDisbursement[] }> {
+    const response = await fetch('/api/payouts/member', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'list', code })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result?.error || 'Unable to verify Member Code.');
+    return {
+      memberId: result.memberId,
+      groupId: result.groupId,
+      payouts: (result.payouts || []).map((row: any) => mapPayoutDisbursement(row, row.proof_url))
+    };
+  },
+
+  async respondToMemberPayout(code: string, payoutId: string, responseValue: 'received' | 'not_received'): Promise<void> {
+    const response = await fetch('/api/payouts/member', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'respond', code, payoutId, memberResponse: responseValue })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result?.error || 'Failed to save payout confirmation.');
+  },
+
   async uploadPayoutProof(payoutId: string, file: File): Promise<void> {
     if (!supabase) throw new Error('Supabase is not configured.');
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];

@@ -86,8 +86,7 @@ export interface SusuContextType {
   updateAgentKyc: (agentIdOrKyc: string | Partial<AgentKycData>, kycData?: Partial<AgentKycData>) => void;
   deleteAgent: (agentIdOrOptions?: string | { resetGroup?: boolean }, options?: { resetGroup?: boolean }) => void;
   updateMemberProfile: (memberId: string, partial: Partial<GroupMember>) => void;
-  loginWithUniqueCode: (code: string) => boolean;
-  requestMemberAccess: (identifier: string) => Promise<void>;
+  loginMemberWithCode: (code: string) => Promise<void>;
   inviteMember: (name: string, email: string, phone: string) => Promise<{ token: string; inviteUrl: string; uniqueCode: string }>;
   acceptInviteToken: (token: string, name: string, phone: string) => Promise<boolean>;
   removeMember: (memberId: string) => void;
@@ -232,6 +231,7 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return 'visitor';
   });
   const [activeMemberId, setActiveMemberIdState] = useState<string>('');
+  const [memberAccessCode, setMemberAccessCode] = useState(() => window.sessionStorage.getItem('memberAccessCode') || '');
 
   const setActiveMemberId = (id: string) => {
     setActiveMemberIdState(id);
@@ -464,41 +464,7 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return;
           }
 
-          let { data: member, error: memberError } = await supabase
-            .from('group_members')
-            .select('id, group_id, user_id')
-            .eq('user_id', user.id)
-            .order('joined_at', { ascending: true })
-            .limit(1)
-            .maybeSingle();
-          if (memberError) throw memberError;
-          if (!member && user.email) {
-            const email = user.email.toLowerCase();
-            const { error: linkError } = await supabase
-              .from('group_members')
-              .update({ user_id: user.id })
-              .ilike('email', email);
-            if (linkError) throw linkError;
-            const result = await supabase
-              .from('group_members')
-              .select('id, group_id, user_id')
-              .eq('user_id', user.id)
-              .order('joined_at', { ascending: true })
-              .limit(1)
-              .maybeSingle();
-            member = result.data;
-            if (result.error) throw result.error;
-          }
-          if (!member) throw new Error('No member profile is linked to the signed-in Supabase user.');
-          if (mounted) {
-            setMembers(prev => prev.map(item => item.userId === `usr-${item.id}` && item.email.toLowerCase() === (user.email || '').toLowerCase()
-              ? { ...item, userId: user.id }
-              : item));
-            setActiveMemberIdState(member.id);
-            setActiveGroupIdState(member.group_id);
-            setCurrentUserRole('member');
-          }
-          return;
+          throw new Error('No agent or Super Admin profile is linked to the signed-in Supabase user.');
         }
         const restoredAgent = mapAgentAccount(data);
         if (mounted) {
@@ -735,9 +701,18 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [schedule, setSchedule] = useState<PayoutScheduleWeek[]>([]);
   const [payoutDisbursements, setPayoutDisbursements] = useState<PayoutDisbursement[]>([]);
   const refreshPayoutDisbursements = React.useCallback(async () => {
+    if (currentUserRole === 'member') {
+      if (!memberAccessCode) {
+        setPayoutDisbursements([]);
+        return;
+      }
+      const result = await DatabaseService.loadMemberPayouts(memberAccessCode);
+      setPayoutDisbursements(result.payouts);
+      return;
+    }
     const records = await DatabaseService.loadPayoutDisbursements();
     setPayoutDisbursements(records);
-  }, []);
+  }, [currentUserRole, memberAccessCode]);
 
   const uploadPayoutProof = async (payoutId: string, file: File) => {
     if (currentUserRole !== 'agent') throw new Error('Only the group agent can upload payout proof.');
@@ -749,7 +724,12 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (currentUserRole !== 'member' || !activeMemberId) {
       throw new Error('Only the scheduled member can confirm or dispute this payout.');
     }
-    await DatabaseService.respondToPayout(payoutId, response);
+    if (currentUserRole === 'member') {
+      if (!memberAccessCode) throw new Error('Enter your Member Code to confirm this payout.');
+      await DatabaseService.respondToMemberPayout(memberAccessCode, payoutId, response);
+    } else {
+      await DatabaseService.respondToPayout(payoutId, response);
+    }
     await refreshPayoutDisbursements();
   };
 
@@ -775,39 +755,6 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [group, members]);
 
   const [isDbLoaded, setIsDbLoaded] = useState(false);
-
-  useEffect(() => {
-    if (currentUserRole !== 'member' || !activeMemberId || !isDbLoaded || !supabase) return;
-    const activeMember = members.find(member => member.id === activeMemberId);
-    if (!activeMember) return;
-
-    let cancelled = false;
-    const linkMemberIdentity = async () => {
-      const { data, error: authError } = await supabase.auth.getUser();
-      if (authError) throw authError;
-      const authUser = data.user;
-      if (!authUser?.email || authUser.email.toLowerCase() !== activeMember.email.toLowerCase()) return;
-
-      const normalizedEmail = authUser.email.toLowerCase();
-      const memberIds = members
-        .filter(member => member.email.toLowerCase() === normalizedEmail)
-        .map(member => member.id);
-      if (!memberIds.length || memberIds.every(id => members.find(member => member.id === id)?.userId === authUser.id)) return;
-
-      const { error } = await supabase.from('group_members').update({ user_id: authUser.id }).in('id', memberIds);
-      if (error) throw error;
-      if (!cancelled) {
-        setMembers(previous => previous.map(member => memberIds.includes(member.id)
-          ? { ...member, userId: authUser.id }
-          : member));
-      }
-    };
-    linkMemberIdentity().catch(error => {
-      console.error('Unable to link member sign-in to the member profile:', error);
-    });
-
-    return () => { cancelled = true; };
-  }, [currentUserRole, activeMemberId, isDbLoaded, members]);
 
   // 1. Load main data from DB - FIXED NOT TO WIPE
   useEffect(() => {
@@ -845,6 +792,21 @@ export const SusuProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsDbLoaded(true);
     });
   }, []);
+
+  useEffect(() => {
+    if (!memberAccessCode || !isDbLoaded || currentUserRole !== 'visitor') return;
+    let cancelled = false;
+    DatabaseService.loadMemberPayouts(memberAccessCode).then(result => {
+      if (cancelled) return;
+      setActiveMemberIdState(result.memberId);
+      setActiveGroupIdState(result.groupId);
+      setPayoutDisbursements(result.payouts);
+      setCurrentUserRole('member');
+    }).catch(error => {
+      console.error('Unable to restore Member Code session:', error);
+    });
+    return () => { cancelled = true; };
+  }, [memberAccessCode, isDbLoaded, currentUserRole]);
 
 const hasSkippedFirstSave = React.useRef(false);
   useEffect(() => {
@@ -901,6 +863,9 @@ const stateToSave = {
     if (role === 'member') {
       const resolved = memberId || activeMemberId || members[0]?.id || '';
       setActiveMemberId(resolved);
+    } else {
+      window.sessionStorage.removeItem('memberAccessCode');
+      setMemberAccessCode('');
     }
   };
 
@@ -910,8 +875,12 @@ const stateToSave = {
       if (error) throw new Error(`Unable to sign out: ${error.message}`);
     }
     setCurrentUserRole('visitor');
+    window.sessionStorage.removeItem('memberAccessCode');
+    setMemberAccessCode('');
+    setActiveMemberIdState('');
     setActiveAgentIdState('');
     setCurrentAgentIdState('');
+    setPayoutDisbursements([]);
   };
 
   const createGroup = (name: string, fixedDailyAmount: number, cycleStartDate?: string, currency?: string, agentId?: string): SusuGroup => {
@@ -1151,41 +1120,16 @@ const createAgent = async (data: Partial<AgentAccount>, password: string): Promi
   };
 
   const updateMemberProfile = (memberId: string, partial: Partial<GroupMember>) => setMembers(prev => prev.map(m => m.id === memberId? {...m,...partial } : m));
-  const loginWithUniqueCode = (code: string): boolean => {
-    const trimmed = code.trim().toUpperCase();
-    const found = members.find(m => (m.uniqueCode && m.uniqueCode.toUpperCase() === trimmed) || (m.inviteToken && m.inviteToken.toLowerCase() === code.trim().toLowerCase()));
-    if (found) { setRole('member', found.id); return true; }
-    return false;
-  };
-
-  const requestMemberAccess = async (identifier: string): Promise<void> => {
-    if (!supabase) throw new Error('Member sign-in is unavailable because Supabase is not configured.');
-    const value = identifier.trim();
-    const member = members.find(item =>
-      item.uniqueCode.toLowerCase() === value.toLowerCase() ||
-      item.inviteToken.toLowerCase() === value.toLowerCase() ||
-      item.email.toLowerCase() === value.toLowerCase()
-    );
-    if (!member && !value.includes('@')) throw new Error('No member account matched that code or email.');
-    let memberEmail = member?.email;
-    if (!memberEmail && value.includes('@')) {
-      const { data, error } = await supabase
-        .from('group_members')
-        .select('email')
-        .ilike('email', value.toLowerCase())
-        .limit(1)
-        .maybeSingle();
-      if (error) throw new Error(`Unable to find the member email: ${error.message}`);
-      memberEmail = data?.email;
-    }
-    if (!memberEmail || !memberEmail.includes('@')) {
-      throw new Error('A valid email address must be added to your member profile before secure payout access can be enabled.');
-    }
-    const { error } = await supabase.auth.signInWithOtp({
-      email: memberEmail.toLowerCase(),
-      options: { emailRedirectTo: window.location.origin, shouldCreateUser: true }
-    });
-    if (error) throw new Error(`Unable to send the member sign-in link: ${error.message}`);
+  const loginMemberWithCode = async (code: string): Promise<void> => {
+    const value = code.trim().toUpperCase();
+    if (!value) throw new Error('Enter your Member Code.');
+    const result = await DatabaseService.loadMemberPayouts(value);
+    window.sessionStorage.setItem('memberAccessCode', value);
+    setMemberAccessCode(value);
+    setActiveMemberIdState(result.memberId);
+    setActiveGroupIdState(result.groupId);
+    setPayoutDisbursements(result.payouts);
+    setCurrentUserRole('member');
   };
 
 
@@ -1573,7 +1517,7 @@ const acceptInviteToken = async (token: string, name: string, phone: string): Pr
       agentAccount, agents, activeAgentId, setActiveAgentId, createAgent, signOut, refreshAgentAccount, refreshAgents, agentPaymentConfig, platformPaymentConfig, platformSettings,
       setRole, createGroup, updateGroupSettings, updateAgentPaymentConfig, updateAgentPaymentConfigForAgent, updatePlatformPaymentConfig, updatePlatformSettings,
       registerAgentKyc, activateAgentAccount, approveAgentKyc, rejectAgentKyc, updateAgentAccount, updateAgentKyc, deleteAgent,
-      updateMemberProfile, loginWithUniqueCode, requestMemberAccess, inviteMember, acceptInviteToken, removeMember, deleteGroup,
+      updateMemberProfile, loginMemberWithCode, inviteMember, acceptInviteToken, removeMember, deleteGroup,
       markCashPayment, processPayment, reorderCalendar, remindMember, shuffleCalendar, addFeedPost, resetDemoData, resetSystemData,
       getMemberReliability, selectRotationSlot, liveSupportConfig, updateLiveSupportConfig, agentMessages, sendAgentMessage,
       notifications, markNotificationAsRead, markAllNotificationsAsRead, addNotification, clearAllNotifications

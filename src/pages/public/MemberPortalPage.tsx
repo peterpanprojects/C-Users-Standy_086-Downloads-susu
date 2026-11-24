@@ -1,13 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSusu } from '../../context/SusuContext';
 import {
   ShieldCheck,
   Key,
   Link as LinkIcon,
   ArrowRight,
-  AlertCircle,
-  Users,
-  CheckCircle2
+  AlertCircle
 } from 'lucide-react';
 
 interface MemberPortalPageProps {
@@ -19,8 +17,12 @@ export const MemberPortalPage: React.FC<MemberPortalPageProps> = ({
   onNavigate,
   initialTab = 'token'
 }) => {
-  const { requestMemberAccess, members, group } = useSusu();
+  const { loginMemberWithCode, members } = useSusu();
   const [activeTab, setActiveTab] = useState<'token' | 'code'>(initialTab);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   // Invite Token Form state
   const [tokenInput, setTokenInput] = useState('');
@@ -29,7 +31,6 @@ export const MemberPortalPage: React.FC<MemberPortalPageProps> = ({
   // Unique Code Form state
   const [uniqueCode, setUniqueCode] = useState('');
   const [codeError, setCodeError] = useState<string | null>(null);
-  const [codeSuccess, setCodeSuccess] = useState<string | null>(null);
   const [requestingSignIn, setRequestingSignIn] = useState(false);
 
   const handleTokenSubmit = (e: React.FormEvent) => {
@@ -64,7 +65,6 @@ export const MemberPortalPage: React.FC<MemberPortalPageProps> = ({
   const handleCodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setCodeError(null);
-    setCodeSuccess(null);
 
     const cleanCode = uniqueCode.trim().toUpperCase();
     if (!cleanCode) {
@@ -74,11 +74,10 @@ export const MemberPortalPage: React.FC<MemberPortalPageProps> = ({
 
     setRequestingSignIn(true);
     try {
-      await requestMemberAccess(cleanCode);
-      const member = members.find(item => item.uniqueCode.toUpperCase() === cleanCode);
-      setCodeSuccess(`A secure sign-in link has been sent to ${member?.email}. Open it on this device to access your portal.`);
+      await loginMemberWithCode(cleanCode);
+      onNavigate('/member/dashboard');
     } catch (error) {
-      setCodeError(error instanceof Error ? error.message : 'Unable to send a secure sign-in link.');
+      setCodeError(error instanceof Error ? error.message : 'Unable to sign in with that Member Code.');
     } finally {
       setRequestingSignIn(false);
     }
@@ -108,7 +107,7 @@ export const MemberPortalPage: React.FC<MemberPortalPageProps> = ({
           </h1>
 
           <p style={{ fontSize: '0.88rem', color: 'var(--color-slate-600)' }}>
-          Join your Susu circle with an invitation link or use your member code to request a secure email sign-in link.
+          Join your Susu circle with an invitation link or sign in with your Member Code.
           </p>
         </div>
 
@@ -278,7 +277,7 @@ export const MemberPortalPage: React.FC<MemberPortalPageProps> = ({
               <div style={{ fontWeight: 800, marginBottom: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                 <Key size={15} /> Existing Member Access
               </div>
-              Enter the <strong>Unique Member Code</strong> assigned by your Agent. We will email a secure sign-in link to the address on your member profile.
+              Enter the <strong>Unique Member Code</strong> assigned by your Agent to access your member portal.
             </div>
 
             {codeError && (
@@ -300,12 +299,6 @@ export const MemberPortalPage: React.FC<MemberPortalPageProps> = ({
                 <span>{codeError}</span>
               </div>
             )}
-            {codeSuccess && (
-              <div role="status" style={{ padding: '0.75rem 1rem', background: 'var(--color-emerald-50)', border: '1px solid var(--color-emerald-200)', color: 'var(--color-emerald-900)', borderRadius: '8px', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-                {codeSuccess}
-              </div>
-            )}
-
             <form onSubmit={handleCodeSubmit}>
               <div className="form-group">
                 <label className="form-label">Enter Your Unique Member Code *</label>
@@ -341,7 +334,7 @@ export const MemberPortalPage: React.FC<MemberPortalPageProps> = ({
                   marginTop: '0.5rem'
                 }}
               >
-                {requestingSignIn ? 'Sending sign-in link…' : 'Email Me a Secure Sign-In Link'} <ArrowRight size={18} />
+                {requestingSignIn ? 'Signing in…' : 'Sign In with Member Code'} <ArrowRight size={18} />
               </button>
             </form>
           </div>

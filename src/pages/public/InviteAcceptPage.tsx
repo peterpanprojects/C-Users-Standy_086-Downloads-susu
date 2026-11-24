@@ -9,7 +9,7 @@ interface InviteAcceptPageProps {
 }
 
 export const InviteAcceptPage: React.FC<InviteAcceptPageProps> = ({ token, onNavigate }) => {
-  const { acceptInviteToken, requestMemberAccess, group, members, schedule, selectRotationSlot } = useSusu();
+  const { acceptInviteToken, group, members, schedule, selectRotationSlot } = useSusu();
 
   const [loading, setLoading] = useState(true);
   const [inviteValid, setInviteValid] = useState(false);
@@ -18,7 +18,6 @@ export const InviteAcceptPage: React.FC<InviteAcceptPageProps> = ({ token, onNav
   const [phone, setPhone] = useState('');
   const [selectedSlot, setSelectedSlot] = useState<number>(1);
   const [accepted, setAccepted] = useState(false);
-  const [accessError, setAccessError] = useState<string | null>(null);
 
 
 
@@ -125,13 +124,6 @@ useEffect(() => {
   }
 
   setAccepted(true);
-  try {
-    const memberEmail = inviteData.member_email || inviteData.invited_email;
-    if (!memberEmail) throw new Error('Ask your Agent to add an email address to the invitation before signing in.');
-    await requestMemberAccess(memberEmail);
-  } catch (error) {
-    setAccessError(error instanceof Error ? error.message : 'Unable to send a secure member sign-in link.');
-  }
 };
 
   return (
@@ -190,9 +182,16 @@ useEffect(() => {
           <div style={{ textAlign: 'center', padding: '2rem 1rem' }}>
             <CheckCircle2 size={54} color="var(--color-emerald-600)" style={{ margin: '0 auto 1rem' }} />
             <h3 style={{ fontSize: '1.4rem', color: 'var(--color-emerald-950)', marginBottom: '0.5rem' }}>Invitation Accepted!</h3>
-            <p style={{ fontSize: '0.85rem', color: 'var(--color-slate-600)' }}>Welcome to {group?.name}. A secure sign-in link has been sent to {inviteData?.member_email || inviteData?.invited_email || 'your registered email'}. Open it on this device to access your member portal.</p>
-            {accessError && <p role="alert" style={{ color: '#b91c1c', fontSize: '0.85rem', marginTop: '0.75rem' }}>{accessError}</p>}
-            <button type="button" className="btn-outline" onClick={() => onNavigate('/member/login')} style={{ marginTop: '1rem' }}>Return to Member Portal</button>
+            <p style={{ fontSize: '0.85rem', color: 'var(--color-slate-600)' }}>Welcome to {group?.name}. Use your Member Code to access your portal.</p>
+            {matchingMember?.uniqueCode ? (
+              <div style={{ marginTop: '1rem', padding: '0.85rem', background: 'var(--color-gold-100)', borderRadius: '8px' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--color-slate-600)' }}>Your Member Code</div>
+                <strong style={{ fontSize: '1.2rem', letterSpacing: '0.08em' }}>{matchingMember.uniqueCode}</strong>
+              </div>
+            ) : (
+              <p role="alert" style={{ color: '#b91c1c', fontSize: '0.85rem', marginTop: '0.75rem' }}>Your Member Code could not be loaded. Please contact your Agent.</p>
+            )}
+            <button type="button" className="btn-outline" onClick={() => onNavigate('/member/login')} style={{ marginTop: '1rem' }}>Go to Member Portal</button>
           </div>
         )}
       </div>
