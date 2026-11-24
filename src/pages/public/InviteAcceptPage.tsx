@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSusu } from '../../context/SusuContext';
-import { ShieldCheck, CheckCircle2, ArrowRight } from 'lucide-react';
+import { ShieldCheck, CheckCircle2, ArrowRight, Lock } from 'lucide-react';
 import { supabase } from '../../services/db';
 
 interface InviteAcceptPageProps {
