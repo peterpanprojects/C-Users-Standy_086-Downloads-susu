@@ -204,7 +204,7 @@ export const RotationCalendarPage: React.FC = () => {
                         if (payout.status === 'sent_to_member' || payout.status === 'member_received') {
                           return (
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.4rem', flexWrap: 'wrap' }}>
-                              <span style={{ fontSize: '0.78rem', color: payout.status === 'member_disputed' ? '#b91c1c' : '#166534' }}>
+                              <span style={{ fontSize: '0.78rem', color: '#166534' }}>
                                 {payout.status === 'member_received' ? 'Member confirmed' : 'Receipt uploaded'}
                               </span>
                               {payout.proofUrl && <a href={payout.proofUrl} target="_blank" rel="noreferrer" aria-label="View payout receipt"><ExternalLink size={16} /></a>}
@@ -238,7 +238,7 @@ export const RotationCalendarPage: React.FC = () => {
                         <span style={{ fontSize: '0.75rem', color: 'var(--color-slate-400)', fontStyle: 'italic' }}>
                           <CheckCircle2 size={14} style={{ display: 'inline' }} /> Done
                         </span>
-                      )}
+                      ) : null}
                     </td>
                   </tr>
                 );
