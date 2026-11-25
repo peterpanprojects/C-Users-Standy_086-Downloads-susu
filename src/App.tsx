@@ -14,6 +14,7 @@ import { LoginPage } from './pages/public/LoginPage';
 import { SignupPage } from './pages/public/SignupPage';
 import { InviteAcceptPage } from './pages/public/InviteAcceptPage';
 import { MemberPortalPage } from './pages/public/MemberPortalPage';
+import { PaymentReturnPage } from './pages/public/PaymentReturnPage';
 
 // Agent Pages
 import { AgentDashboardPage } from './pages/agent/AgentDashboardPage';
@@ -178,6 +179,8 @@ const AppContent: React.FC = () => {
         return <MemberPortalPage initialTab="code" onNavigate={handleNavigate} />;
       case '/signup':
         return <SignupPage onNavigate={handleNavigate} />;
+      case '/payment/return':
+        return <PaymentReturnPage onNavigate={handleNavigate} />;
 
       // Super Admin Protected Views
       case '/admin':

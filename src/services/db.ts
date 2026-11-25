@@ -137,6 +137,35 @@ export function validateDatabaseIntegrity(state: Partial<DatabaseState>): { vali
 }
 
 export const DatabaseService = {
+  async initializePaystackRedirect(memberId: string, groupId: string, dates: string[]): Promise<string> {
+    const response = await fetch('/api/paystack/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'initialize', memberId, groupId, dates })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result?.error || 'Unable to start Paystack checkout.');
+    if (typeof result?.authorizationUrl !== 'string') {
+      throw new Error('Paystack did not return a checkout address.');
+    }
+    const checkoutUrl = new URL(result.authorizationUrl);
+    if (checkoutUrl.origin !== 'https://checkout.paystack.com') {
+      throw new Error('Paystack returned an invalid checkout address.');
+    }
+    return checkoutUrl.toString();
+  },
+
+  async completePaystackRedirect(reference: string): Promise<{ reference: string; paidDates: string[]; paidAt: string }> {
+    const response = await fetch('/api/paystack/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'verify', reference })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result?.error || 'Unable to confirm this Paystack payment.');
+    return result;
+  },
+
   async loadAgents(): Promise<AgentAccount[]> {
     if (!supabase) throw new Error('Supabase is not configured.');
     const { data, error } = await supabase
