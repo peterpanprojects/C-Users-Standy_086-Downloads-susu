@@ -292,7 +292,14 @@ async function verifyCheckout(request, response, supabase, secretKey, setFailure
   const { error: saveError } = await supabase
     .from('daily_payments')
     .upsert(rows, { onConflict: 'group_id,member_id,payment_date' });
-  if (saveError) throw saveError;
+  if (saveError) {
+    console.error('Paystack contribution recording failed:', saveError.code);
+    return response.status(502).json({
+      error: 'Paystack confirmed the payment, but the contributions could not be recorded.',
+      diagnosticCode: 'record_contributions',
+      databaseCode: typeof saveError.code === 'string' ? saveError.code : 'unknown'
+    });
+  }
 
   return response.status(200).json({
     paidDates: intent.dates,
