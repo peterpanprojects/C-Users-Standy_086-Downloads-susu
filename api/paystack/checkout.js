@@ -84,6 +84,11 @@ function parseMetadata(metadata) {
   return metadata && typeof metadata === 'object' ? metadata : null;
 }
 
+function parseMetadataInteger(value) {
+  const parsed = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value;
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
 async function initializeCheckout(request, response, supabase, secretKey) {
   const { memberId, groupId, dates } = request.body || {};
   if (
@@ -195,7 +200,16 @@ async function verifyCheckout(request, response, supabase, secretKey) {
     return response.status(409).json({ error: 'Paystack has not confirmed this payment. No contribution was marked as paid.' });
   }
   const metadata = parseMetadata(transaction.metadata);
-  const intent = metadata?.susu_payment;
+  const rawIntent = metadata?.susu_payment;
+  const intent = rawIntent && typeof rawIntent === 'object'
+    ? {
+        ...rawIntent,
+        version: parseMetadataInteger(rawIntent.version),
+        dailyAmountMinor: parseMetadataInteger(rawIntent.dailyAmountMinor),
+        feeMinor: parseMetadataInteger(rawIntent.feeMinor),
+        totalMinor: parseMetadataInteger(rawIntent.totalMinor)
+      }
+    : null;
   const mismatchReasons = [];
   if (!intent || typeof intent !== 'object') {
     mismatchReasons.push('checkout_metadata_missing');
