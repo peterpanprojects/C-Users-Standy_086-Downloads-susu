@@ -195,7 +195,7 @@ async function verifyCheckout(request, response, supabase, secretKey) {
     return response.status(409).json({ error: 'Paystack has not confirmed this payment. No contribution was marked as paid.' });
   }
   const intent = parseMetadata(transaction.metadata)?.susu_payment;
-  if (
+  const invalidIntent = (
     intent?.version !== 1 ||
     typeof intent.memberId !== 'string' ||
     typeof intent.groupId !== 'string' ||
@@ -207,11 +207,17 @@ async function verifyCheckout(request, response, supabase, secretKey) {
     !Number.isSafeInteger(intent.totalMinor) ||
     intent.totalMinor !== intent.dailyAmountMinor * intent.dates.length + intent.feeMinor ||
     typeof intent.currency !== 'string' ||
-    !/^[A-Z]{3}$/.test(intent.currency) ||
-    transaction.amount !== intent.totalMinor ||
-    transaction.currency !== intent.currency
-  ) {
-    return response.status(422).json({ error: 'The Paystack transaction does not match this Susu payment.' });
+    !/^[A-Z]{3}$/.test(intent.currency)
+  );
+  const mismatchReasons = [];
+  if (invalidIntent) mismatchReasons.push('checkout_metadata');
+  if (!invalidIntent && transaction.amount !== intent.totalMinor) mismatchReasons.push('amount');
+  if (!invalidIntent && transaction.currency !== intent.currency) mismatchReasons.push('currency');
+  if (mismatchReasons.length) {
+    return response.status(422).json({
+      error: 'The Paystack transaction does not match this Susu payment.',
+      mismatchReasons
+    });
   }
 
   const { data: member, error: memberError } = await supabase
