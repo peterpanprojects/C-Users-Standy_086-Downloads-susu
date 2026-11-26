@@ -200,7 +200,7 @@ async function verifyCheckout(request, response, supabase, secretKey) {
     typeof intent.memberId !== 'string' ||
     typeof intent.groupId !== 'string' ||
     !validPaymentDates(intent.dates) ||
-    !    !Number.isSafeInteger(intent.dailyAmountMinor) ||
+    !Number.isSafeInteger(intent.dailyAmountMinor) ||
     intent.dailyAmountMinor <= 0 ||
     !Number.isSafeInteger(intent.feeMinor) ||
     intent.feeMinor < 0 ||
@@ -259,7 +259,9 @@ async function verifyCheckout(request, response, supabase, secretKey) {
   return response.status(200).json({
     paidDates: intent.dates,
     reference,
-    paidAt
+    paidAt,
+    memberId: intent.memberId,
+    groupId: intent.groupId
   });
 }
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle2, LoaderCircle, AlertCircle } from 'lucide-react';
+import { useSusu } from '../../context/SusuContext';
 import { DatabaseService } from '../../services/db';
 
 interface PaymentReturnPageProps {
@@ -7,7 +8,9 @@ interface PaymentReturnPageProps {
 }
 
 export const PaymentReturnPage: React.FC<PaymentReturnPageProps> = ({ onNavigate }) => {
+  const { setRole, refreshMemberPayments } = useSusu();
   const [reference, setReference] = useState('');
+  const [memberId, setMemberId] = useState('');
   const [status, setStatus] = useState<'verifying' | 'success' | 'error'>('verifying');
   const [message, setMessage] = useState('Confirming your payment with Paystack...');
   const [paidDays, setPaidDays] = useState(0);
@@ -17,10 +20,18 @@ export const PaymentReturnPage: React.FC<PaymentReturnPageProps> = ({ onNavigate
     setMessage('Confirming your payment with Paystack...');
     try {
       const result = await DatabaseService.completePaystackRedirect(paymentReference);
+      setRole('member', result.memberId);
+      setMemberId(result.memberId);
       setPaidDays(result.paidDates.length);
       setStatus('success');
       setMessage('Your payment was confirmed and your contribution records have been updated.');
       window.history.replaceState({}, '', window.location.pathname);
+      try {
+        await refreshMemberPayments(result.memberId);
+      } catch (error) {
+        console.error('Payment was confirmed, but member contributions could not be refreshed:', error);
+        setMessage('Your payment was confirmed, but the contribution list could not refresh. Your payment is recorded; reload the page to see the updated status.');
+      }
     } catch (error) {
       setStatus('error');
       setMessage(error instanceof Error ? error.message : 'Unable to confirm this payment.');
@@ -28,6 +39,10 @@ export const PaymentReturnPage: React.FC<PaymentReturnPageProps> = ({ onNavigate
   };
 
   useEffect(() => {
+    const storedMemberId = window.sessionStorage.getItem('memberPaymentReturnId') || '';
+    setMemberId(storedMemberId);
+    if (storedMemberId) setRole('member', storedMemberId);
+
     const query = new URLSearchParams(window.location.search);
     const paymentReference = query.get('reference') || query.get('trxref') || '';
     setReference(paymentReference);
@@ -38,6 +53,17 @@ export const PaymentReturnPage: React.FC<PaymentReturnPageProps> = ({ onNavigate
     }
     void verifyPayment(paymentReference);
   }, []);
+
+  const returnToContributions = () => {
+    const returningMemberId = memberId || window.sessionStorage.getItem('memberPaymentReturnId') || '';
+    if (returningMemberId) {
+      setRole('member', returningMemberId);
+      window.sessionStorage.removeItem('memberPaymentReturnId');
+      onNavigate('/member/pay');
+      return;
+    }
+    onNavigate('/member/login');
+  };
 
   return (
     <div style={{ maxWidth: '520px', margin: '3rem auto', padding: '0 1rem' }}>
@@ -72,8 +98,8 @@ export const PaymentReturnPage: React.FC<PaymentReturnPageProps> = ({ onNavigate
             </button>
           )}
           {status !== 'verifying' && (
-            <button type="button" className="btn-primary" onClick={() => onNavigate(status === 'success' ? '/member/login' : '/member/pay')}>
-              {status === 'success' ? 'Return to Member Portal' : 'Back to Contributions'}
+            <button type="button" className="btn-primary" onClick={returnToContributions}>
+              {status === 'success' ? 'Return to Contributions' : memberId ? 'Back to Contributions' : 'Return to Member Login'}
             </button>
           )}
         </div>

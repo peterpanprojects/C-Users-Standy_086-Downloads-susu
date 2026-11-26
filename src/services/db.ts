@@ -155,7 +155,7 @@ export const DatabaseService = {
     return checkoutUrl.toString();
   },
 
-  async completePaystackRedirect(reference: string): Promise<{ reference: string; paidDates: string[]; paidAt: string }> {
+  async completePaystackRedirect(reference: string): Promise<{ reference: string; paidDates: string[]; paidAt: string; memberId: string; groupId: string }> {
     const response = await fetch('/api/paystack/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -164,6 +164,28 @@ export const DatabaseService = {
     const result = await response.json();
     if (!response.ok) throw new Error(result?.error || 'Unable to confirm this Paystack payment.');
     return result;
+  },
+
+  async loadMemberPayments(memberId: string): Promise<DailyPayment[]> {
+    if (!supabase) throw new Error('Supabase is not configured.');
+    const { data, error } = await supabase
+      .from('daily_payments')
+      .select('*')
+      .eq('member_id', memberId)
+      .order('payment_date', { ascending: true });
+    if (error) throw new Error(`Failed to refresh member contributions: ${error.message}`);
+    return (data || []).map((payment: any) => ({
+      id: payment.id,
+      groupId: payment.group_id,
+      memberId: payment.member_id,
+      paymentDate: payment.payment_date,
+      amount: Number(payment.amount),
+      platformFee: Number(payment.platform_fee || 0),
+      status: payment.status,
+      paymentMethod: payment.payment_method,
+      paystackReference: payment.paystack_reference,
+      paidAt: payment.paid_at
+    }));
   },
 
   async loadAgents(): Promise<AgentAccount[]> {

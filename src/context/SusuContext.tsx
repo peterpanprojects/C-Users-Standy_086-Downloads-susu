@@ -88,6 +88,7 @@ export interface SusuContextType {
   deleteGroup: (groupId?: string) => void;
   markCashPayment: (memberId: string, dateStr: string) => void;
   remindMember: (memberId: string) => Promise<void>;
+  refreshMemberPayments: (memberId: string) => Promise<void>;
   processPayment: (memberId: string, dates: string[], method: PaymentMethod, paystackRef?: string, platformFee?: number) => Promise<void>;
   reorderCalendar: (fromIndex: number, toIndex: number) => void;
   shuffleCalendar: () => void;
@@ -1333,6 +1334,14 @@ const acceptInviteToken = async (token: string, name: string, phone: string): Pr
     });
   };
 
+  const refreshMemberPayments = async (memberId: string) => {
+    const refreshedPayments = await DatabaseService.loadMemberPayments(memberId);
+    setPayments(prev => [
+      ...prev.filter(payment => payment.memberId !== memberId),
+      ...refreshedPayments
+    ]);
+  };
+
   const reorderCalendar = (fromIndex: number, toIndex: number) => {
     if (!group) return;
     const currentWeekIdx = schedule.findIndex(s => s.status === 'current');
@@ -1420,7 +1429,7 @@ const acceptInviteToken = async (token: string, name: string, phone: string): Pr
       setRole, createGroup, updateGroupSettings, updateAgentPaymentConfig, updateAgentPaymentConfigForAgent, updatePlatformPaymentConfig, updatePlatformSettings,
       registerAgentKyc, activateAgentAccount, approveAgentKyc, rejectAgentKyc, updateAgentAccount, updateAgentKyc, deleteAgent,
       updateMemberProfile, loginWithUniqueCode, inviteMember, acceptInviteToken, removeMember, deleteGroup,
-      markCashPayment, processPayment, reorderCalendar, remindMember, shuffleCalendar, addFeedPost, resetDemoData, resetSystemData,
+      markCashPayment, processPayment, refreshMemberPayments, reorderCalendar, remindMember, shuffleCalendar, addFeedPost, resetDemoData, resetSystemData,
       getMemberReliability, selectRotationSlot, liveSupportConfig, updateLiveSupportConfig, agentMessages, sendAgentMessage,
       notifications, markNotificationAsRead, markAllNotificationsAsRead, addNotification, clearAllNotifications
     }}>

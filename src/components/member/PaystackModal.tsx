@@ -34,6 +34,7 @@ export const PaystackModal: React.FC<PaystackModalProps> = ({ isOpen, onClose, s
         group.id,
         selectedDates
       );
+      window.sessionStorage.setItem('memberPaymentReturnId', currentMember.id);
       window.location.assign(checkoutUrl);
     } catch (error) {
       setProcessing(false);
