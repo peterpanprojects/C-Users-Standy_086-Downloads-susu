@@ -151,6 +151,9 @@ CREATE TABLE IF NOT EXISTS daily_payments (
     CONSTRAINT uq_member_payment_date UNIQUE (group_id, member_id, payment_date)
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS uq_member_payment_date
+    ON daily_payments (group_id, member_id, payment_date);
+
 ALTER TABLE daily_payments ADD COLUMN IF NOT EXISTS platform_fee NUMERIC(12, 2) NOT NULL DEFAULT 0;
 ALTER TABLE daily_payments ADD COLUMN IF NOT EXISTS group_id TEXT;
 ALTER TABLE daily_payments ADD COLUMN IF NOT EXISTS member_id TEXT;
