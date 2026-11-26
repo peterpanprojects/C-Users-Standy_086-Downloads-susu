@@ -194,25 +194,38 @@ async function verifyCheckout(request, response, supabase, secretKey) {
   if (transaction.status !== 'success' || transaction.reference !== reference) {
     return response.status(409).json({ error: 'Paystack has not confirmed this payment. No contribution was marked as paid.' });
   }
-  const intent = parseMetadata(transaction.metadata)?.susu_payment;
-  const invalidIntent = (
-    intent?.version !== 1 ||
-    typeof intent.memberId !== 'string' ||
-    typeof intent.groupId !== 'string' ||
-    !validPaymentDates(intent.dates) ||
-    !Number.isSafeInteger(intent.dailyAmountMinor) ||
-    intent.dailyAmountMinor <= 0 ||
-    !Number.isSafeInteger(intent.feeMinor) ||
-    intent.feeMinor < 0 ||
-    !Number.isSafeInteger(intent.totalMinor) ||
-    intent.totalMinor !== intent.dailyAmountMinor * intent.dates.length + intent.feeMinor ||
-    typeof intent.currency !== 'string' ||
-    !/^[A-Z]{3}$/.test(intent.currency)
-  );
+  const metadata = parseMetadata(transaction.metadata);
+  const intent = metadata?.susu_payment;
   const mismatchReasons = [];
-  if (invalidIntent) mismatchReasons.push('checkout_metadata');
-  if (!invalidIntent && transaction.amount !== intent.totalMinor) mismatchReasons.push('amount');
-  if (!invalidIntent && transaction.currency !== intent.currency) mismatchReasons.push('currency');
+  if (!intent || typeof intent !== 'object') {
+    mismatchReasons.push('checkout_metadata_missing');
+  } else {
+    if (intent.version !== 1) mismatchReasons.push('metadata_version');
+    if (typeof intent.memberId !== 'string' || typeof intent.groupId !== 'string') {
+      mismatchReasons.push('metadata_member_group');
+    }
+    const hasValidDates = validPaymentDates(intent.dates);
+    if (!hasValidDates) mismatchReasons.push('metadata_dates');
+    if (
+      !Number.isSafeInteger(intent.dailyAmountMinor) ||
+      intent.dailyAmountMinor <= 0 ||
+      !Number.isSafeInteger(intent.feeMinor) ||
+      intent.feeMinor < 0 ||
+      !Number.isSafeInteger(intent.totalMinor)
+    ) {
+      mismatchReasons.push('metadata_amount_fields');
+    } else if (
+      hasValidDates &&
+      intent.totalMinor !== intent.dailyAmountMinor * intent.dates.length + intent.feeMinor
+    ) {
+      mismatchReasons.push('metadata_total');
+    }
+    if (typeof intent.currency !== 'string' || !/^[A-Z]{3}$/.test(intent.currency)) {
+      mismatchReasons.push('metadata_currency');
+    }
+  }
+  if (!mismatchReasons.length && transaction.amount !== intent.totalMinor) mismatchReasons.push('amount');
+  if (!mismatchReasons.length && transaction.currency !== intent.currency) mismatchReasons.push('currency');
   if (mismatchReasons.length) {
     return response.status(422).json({
       error: 'The Paystack transaction does not match this Susu payment.',
