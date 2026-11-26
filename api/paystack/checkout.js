@@ -189,16 +189,18 @@ async function initializeCheckout(request, response, supabase, secretKey) {
   return response.status(200).json({ authorizationUrl: transaction.authorization_url });
 }
 
-async function verifyCheckout(request, response, supabase, secretKey) {
+async function verifyCheckout(request, response, supabase, secretKey, setFailureStage) {
   const { reference } = request.body || {};
   if (typeof reference !== 'string' || !/^SUSU-[a-f0-9]{32}$/.test(reference)) {
     return response.status(400).json({ error: 'A valid payment reference is required.' });
   }
 
+  setFailureStage('paystack_verification');
   const transaction = await paystackRequest(`/transaction/verify/${encodeURIComponent(reference)}`, secretKey);
   if (transaction.status !== 'success' || transaction.reference !== reference) {
     return response.status(409).json({ error: 'Paystack has not confirmed this payment. No contribution was marked as paid.' });
   }
+  setFailureStage('metadata_validation');
   const metadata = parseMetadata(transaction.metadata);
   const rawIntent = metadata?.susu_payment;
   const intent = rawIntent && typeof rawIntent === 'object'
@@ -247,6 +249,7 @@ async function verifyCheckout(request, response, supabase, secretKey) {
     });
   }
 
+  setFailureStage('member_lookup');
   const { data: member, error: memberError } = await supabase
     .from('group_members')
     .select('id, group_id')
@@ -257,6 +260,7 @@ async function verifyCheckout(request, response, supabase, secretKey) {
     return response.status(404).json({ error: 'The member for this payment could not be found.' });
   }
 
+  setFailureStage('existing_payment_lookup');
   const { data: existingPayments, error: existingError } = await supabase
     .from('daily_payments')
     .select('payment_date, paystack_reference')
@@ -284,6 +288,7 @@ async function verifyCheckout(request, response, supabase, secretKey) {
     paystack_reference: index === 0 ? reference : null,
     paid_at: paidAt
   }));
+  setFailureStage('record_contributions');
   const { error: saveError } = await supabase
     .from('daily_payments')
     .upsert(rows, { onConflict: 'group_id,member_id,payment_date' });
@@ -308,6 +313,7 @@ export default async function handlePaystackCheckout(request, response) {
   const secretKey = process.env.PAYSTACK_SECRET_KEY;
   if (!secretKey) return response.status(500).json({ error: 'Server payment processing is not configured.' });
 
+  let failureStage = 'request_setup';
   try {
     getRequestOrigin(request);
     const supabase = getSupabase();
@@ -315,13 +321,16 @@ export default async function handlePaystackCheckout(request, response) {
       return await initializeCheckout(request, response, supabase, secretKey);
     }
     if (request.body?.action === 'verify') {
-      return await verifyCheckout(request, response, supabase, secretKey);
+      return await verifyCheckout(request, response, supabase, secretKey, stage => {
+        failureStage = stage;
+      });
     }
     return response.status(400).json({ error: 'A valid checkout action is required.' });
   } catch (error) {
     console.error('Paystack hosted checkout failed:', error);
     return response.status(502).json({
-      error: error instanceof Error ? error.message : 'Paystack checkout could not be completed.'
+      error: error instanceof Error ? error.message : 'Paystack checkout could not be completed.',
+      diagnosticCode: failureStage
     });
   }
 }
