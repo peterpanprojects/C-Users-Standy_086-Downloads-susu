@@ -86,6 +86,7 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
 
   // 9. Business particulars
   const [tradeName, setTradeName] = useState(
@@ -168,6 +169,28 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [checkingSavedKyc, setCheckingSavedKyc] = useState(true);
+  const [currentStep, setCurrentStep] = useState(1);
+  const formRef = useRef<HTMLFormElement | null>(null);
+
+  const steps = [
+    'Personal Demographics',
+    'Official Identification & Biometric Capture',
+    'Residential Location & Address Verification',
+    'Business & Professional Background',
+    'Mobile Money & Settlement Account',
+    'Next of Kin & Emergency Guarantor'
+  ];
+
+  useEffect(() => {
+    if (currentStep === 2) return;
+    cameraStreamRef.current?.getTracks().forEach(track => track.stop());
+    cameraStreamRef.current = null;
+    setIsCameraActive(false);
+  }, [currentStep]);
+
+  useEffect(() => () => {
+    cameraStreamRef.current?.getTracks().forEach(track => track.stop());
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -196,10 +219,14 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+        cameraStreamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          videoRef.current.play();
+          void videoRef.current.play();
           setIsCameraActive(true);
+        } else {
+          stream.getTracks().forEach(track => track.stop());
+          cameraStreamRef.current = null;
         }
       } else {
         setCameraError('Camera access not supported in this browser. Using simulation capture.');
@@ -222,10 +249,8 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
         setSelfie(dataUrl);
       }
       // Stop video stream
-      const stream = videoRef.current.srcObject as MediaStream;
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
+      cameraStreamRef.current?.getTracks().forEach(track => track.stop());
+      cameraStreamRef.current = null;
       setIsCameraActive(false);
     } else {
       // Simulate capture
@@ -248,12 +273,36 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
     }
   };
 
+  const handleNextStep = () => {
+    setError(null);
+    if (!formRef.current?.reportValidity()) return;
+
+    if (currentStep === 2 && (!idCardFront || !idCardBack || !selfie)) {
+      setError('Please upload both sides of your identification card and capture or upload a selfie before continuing.');
+      return;
+    }
+
+    setCurrentStep(step => Math.min(step + 1, steps.length));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handlePreviousStep = () => {
+    setError(null);
+    setCurrentStep(step => Math.max(step - 1, 1));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
+    if (currentStep < steps.length) {
+      handleNextStep();
+      return;
+    }
+
     if (!fullName.trim() || !idCardNumber.trim() || !digitalAddress.trim()) {
-      setError('Please fill in all mandatory fields (Legal Name, ID Card Number, and Digital Address).');
+      setError('Please complete all mandatory registration fields.');
       return;
     }
 
@@ -355,8 +404,62 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
         </div>
       )}
 
-      <form onSubmit={handleSubmit}>
+      <div
+        aria-label="Registration progress"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
+          gap: '0.5rem',
+          marginBottom: '1.5rem'
+        }}
+      >
+        {steps.map((step, index) => {
+          const stepNumber = index + 1;
+          const isCurrent = currentStep === stepNumber;
+          const isComplete = currentStep > stepNumber;
+          return (
+            <div
+              key={step}
+              aria-current={isCurrent ? 'step' : undefined}
+              style={{
+                minWidth: 0,
+                padding: '0.65rem 0.35rem',
+                textAlign: 'center',
+                borderRadius: '10px',
+                background: isCurrent ? 'var(--color-emerald-950)' : isComplete ? 'var(--color-emerald-50)' : '#fff',
+                color: isCurrent ? '#fff' : 'var(--color-slate-600)',
+                border: `1px solid ${isCurrent ? 'var(--color-emerald-950)' : 'var(--color-slate-200)'}`
+              }}
+            >
+              <span style={{
+                display: 'inline-flex',
+                width: '1.5rem',
+                height: '1.5rem',
+                justifyContent: 'center',
+                alignItems: 'center',
+                borderRadius: '50%',
+                fontSize: '0.75rem',
+                fontWeight: 800,
+                background: isCurrent || isComplete ? 'var(--color-gold-500)' : 'var(--color-slate-100)',
+                color: 'var(--color-emerald-950)'
+              }}>
+                {isComplete ? <Check size={14} /> : stepNumber}
+              </span>
+              <span style={{ display: 'block', marginTop: '0.35rem', fontSize: '0.68rem', lineHeight: 1.25 }}>
+                {step}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      <p aria-live="polite" style={{ textAlign: 'center', color: 'var(--color-slate-600)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+        Step {currentStep} of {steps.length}
+      </p>
+
+      <form ref={formRef} onSubmit={handleSubmit}>
         {/* SECTION 1: PERSONAL PARTICULARS */}
+        {currentStep === 1 && (
         <div className="card" style={{ marginBottom: '1.5rem', padding: '1.75rem' }}>
           <h3 style={{ fontSize: '1.2rem', color: 'var(--color-emerald-950)', marginBottom: '1rem', borderBottom: '1px solid var(--color-slate-200)', paddingBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <User size={18} color="var(--color-emerald-700)" />
@@ -407,6 +510,7 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
                 className="form-select"
                 value={gender}
                 onChange={(e) => setGender(e.target.value as any)}
+                required
               >
                 <option value="female">Female</option>
                 <option value="male">Male</option>
@@ -421,6 +525,7 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
                 className="form-select"
                 value={maritalStatus}
                 onChange={(e) => setMaritalStatus(e.target.value as any)}
+                required
               >
                 <option value="single">Single</option>
                 <option value="married">Married</option>
@@ -441,8 +546,10 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
             </div>
           </div>
         </div>
+        )}
 
         {/* SECTION 2: IDENTIFICATION & BIOMETRIC CAPTURE */}
+        {currentStep === 2 && (
         <div className="card" style={{ marginBottom: '1.5rem', padding: '1.75rem' }}>
           <h3 style={{ fontSize: '1.2rem', color: 'var(--color-emerald-950)', marginBottom: '1rem', borderBottom: '1px solid var(--color-slate-200)', paddingBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <CreditCard size={18} color="var(--color-gold-600)" />
@@ -457,6 +564,7 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
                 className="form-select"
                 value={idCardType}
                 onChange={(e) => setIdCardType(e.target.value as any)}
+                required
               >
                 <option value="ecowas_card">ECOWAS Card (Ghana Card)</option>
                 <option value="passport">International Passport</option>
@@ -716,8 +824,10 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
             </div>
           </div>
         </div>
+        )}
 
         {/* SECTION 3: RESIDENTIAL LOCATION & ADDRESS VERIFICATION */}
+        {currentStep === 3 && (
         <div className="card" style={{ marginBottom: '1.5rem', padding: '1.75rem' }}>
           <h3 style={{ fontSize: '1.2rem', color: 'var(--color-emerald-950)', marginBottom: '1rem', borderBottom: '1px solid var(--color-slate-200)', paddingBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <MapPin size={18} color="var(--color-emerald-700)" />
@@ -824,8 +934,10 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
             </div>
           </div>
         </div>
+        )}
 
         {/* SECTION 4: BUSINESS, AGENCY & PROFESSIONAL PROFILE */}
+        {currentStep === 4 && (
         <div className="card" style={{ marginBottom: '1.5rem', padding: '1.75rem' }}>
           <h3 style={{ fontSize: '1.2rem', color: 'var(--color-emerald-950)', marginBottom: '1rem', borderBottom: '1px solid var(--color-slate-200)', paddingBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Building2 size={18} color="var(--color-emerald-700)" />
@@ -909,8 +1021,10 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
             </div>
           </div>
         </div>
+        )}
 
         {/* SECTION 5: PAYOUT & SETTLEMENT ACCOUNT */}
+        {currentStep === 5 && (
         <div className="card" style={{ marginBottom: '1.5rem', padding: '1.75rem' }}>
           <h3 style={{ fontSize: '1.2rem', color: 'var(--color-emerald-950)', marginBottom: '1rem', borderBottom: '1px solid var(--color-slate-200)', paddingBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Smartphone size={18} color="var(--color-emerald-700)" />
@@ -927,6 +1041,7 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
                 className="form-select"
                 value={payoutMethod}
                 onChange={(e) => setPayoutMethod(e.target.value as any)}
+                required
               >
                 <option value="momo">Mobile Money (Recommended)</option>
                 <option value="bank">Commercial Bank Account</option>
@@ -941,6 +1056,7 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
                     className="form-select"
                     value={payoutMomoNetwork}
                     onChange={(e) => setPayoutMomoNetwork(e.target.value)}
+                    required
                   >
                     <option value="MTN">MTN Mobile Money</option>
                     <option value="Telecel">Telecel Cash</option>
@@ -955,6 +1071,7 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
                     className="form-input"
                     value={payoutMomoNumber}
                     onChange={(e) => setPayoutMomoNumber(e.target.value)}
+                    required
                   />
                 </div>
 
@@ -965,6 +1082,7 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
                     className="form-input"
                     value={payoutAccountName}
                     onChange={(e) => setPayoutAccountName(e.target.value)}
+                    required
                   />
                 </div>
               </>
@@ -977,6 +1095,7 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
                     className="form-input"
                     value={payoutBankName}
                     onChange={(e) => setPayoutBankName(e.target.value)}
+                    required
                   />
                 </div>
 
@@ -987,6 +1106,7 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
                     className="form-input"
                     value={payoutAccountNumber}
                     onChange={(e) => setPayoutAccountNumber(e.target.value)}
+                    required
                   />
                 </div>
 
@@ -997,14 +1117,17 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
                     className="form-input"
                     value={payoutAccountName}
                     onChange={(e) => setPayoutAccountName(e.target.value)}
+                    required
                   />
                 </div>
               </>
             )}
           </div>
         </div>
+        )}
 
         {/* SECTION 6: NEXT OF KIN / GUARANTOR */}
+        {currentStep === 6 && (
         <div className="card" style={{ marginBottom: '2rem', padding: '1.75rem' }}>
           <h3 style={{ fontSize: '1.2rem', color: 'var(--color-emerald-950)', marginBottom: '1rem', borderBottom: '1px solid var(--color-slate-200)', paddingBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Users size={18} color="var(--color-emerald-700)" />
@@ -1019,6 +1142,7 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
                 className="form-input"
                 value={nextOfKinName}
                 onChange={(e) => setNextOfKinName(e.target.value)}
+                required
               />
             </div>
 
@@ -1028,6 +1152,7 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
                 className="form-select"
                 value={nextOfKinRelationship}
                 onChange={(e) => setNextOfKinRelationship(e.target.value)}
+                required
               >
                 <option value="Spouse">Spouse</option>
                 <option value="Sibling">Brother / Sister</option>
@@ -1045,6 +1170,7 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
                 className="form-input"
                 value={nextOfKinPhone}
                 onChange={(e) => setNextOfKinPhone(e.target.value)}
+                required
               />
             </div>
 
@@ -1059,8 +1185,9 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
             </div>
           </div>
         </div>
+        )}
 
-        {/* SUBMISSION BAR */}
+        {/* STEP NAVIGATION AND SUBMISSION */}
         <div
           style={{
             background: '#fff',
@@ -1075,30 +1202,62 @@ export const AgentKycRegistrationPage: React.FC<AgentKycRegistrationPageProps> =
             gap: '1rem'
           }}
         >
-          <div>
+          {currentStep === 6 ? <div>
             <div style={{ fontWeight: 800, color: 'var(--color-emerald-950)', fontSize: '1rem' }}>
               Next Step: Paid Agent Service Activation
             </div>
             <p style={{ fontSize: '0.82rem', color: 'var(--color-slate-600)' }}>
               Registration is not free. You will proceed to pay your official service activation fee.
             </p>
-          </div>
+          </div> : <div>
+            <div style={{ fontWeight: 800, color: 'var(--color-emerald-950)', fontSize: '1rem' }}>
+              {steps[currentStep - 1]}
+            </div>
+            <p style={{ fontSize: '0.82rem', color: 'var(--color-slate-600)' }}>
+              Complete this section before moving to the next step.
+            </p>
+          </div>}
 
-          <button
-            type="submit"
-            className="btn-gold"
-            disabled={submitting || checkingSavedKyc}
-            style={{
-              padding: '0.85rem 2rem',
-              fontSize: '1rem',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.5rem'
-            }}
-          >
-            {checkingSavedKyc ? 'Checking saved registration...' : submitting ? 'Submitting...' : 'Submit Registration & Proceed to Activation'}
-            {!checkingSavedKyc && <ArrowRight size={18} />}
-          </button>
+          <div style={{ display: 'flex', gap: '0.75rem', marginLeft: 'auto', flexWrap: 'wrap' }}>
+            {currentStep > 1 && (
+              <button
+                type="button"
+                className="btn-outline"
+                onClick={handlePreviousStep}
+                disabled={submitting}
+                style={{ padding: '0.85rem 1.25rem', fontSize: '1rem' }}
+              >
+                Back
+              </button>
+            )}
+
+            {currentStep < steps.length ? (
+              <button
+                type="button"
+                className="btn-gold"
+                onClick={handleNextStep}
+                style={{ padding: '0.85rem 2rem', fontSize: '1rem', display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
+              >
+                Next <ArrowRight size={18} />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                className="btn-gold"
+                disabled={submitting || checkingSavedKyc}
+                style={{
+                  padding: '0.85rem 2rem',
+                  fontSize: '1rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
+                }}
+              >
+                {checkingSavedKyc ? 'Checking saved registration...' : submitting ? 'Submitting...' : 'Submit Registration & Proceed to Activation'}
+                {!checkingSavedKyc && <ArrowRight size={18} />}
+              </button>
+            )}
+          </div>
         </div>
       </form>
     </div>
